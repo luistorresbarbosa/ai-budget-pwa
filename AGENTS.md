@@ -1,7 +1,7 @@
 # AI Budget App — Regras e Requisitos
 
 ## Resumo
-Quero construir uma app em Flutter para gerir as minhas despesas e transferências entre as minhas contas.
+Quero construir uma PWA WEB app para gerir as minhas despesas e transferências entre as minhas contas.
 
 Este documento descreve as regras, funcionalidades e requisitos iniciais da aplicação. Deve ser usado como referência ao longo do desenvolvimento e atualizado sempre que o escopo mudar.
 
@@ -32,7 +32,7 @@ Notas:
 
 ## Base de dados
 
-- A base de dados online ainda não existe e necessita de ser criada — incluindo toda a sua estrutura e migrações.
+- A base de dados em Firebase ainda não existe e necessita de ser criada — incluindo toda a sua estrutura e migrações.
 - Dados a persistir (mínimo):
   - Faturas / recibos (apenas metadados extraídos — o PDF original **não** é guardado)
   - Extractos bancários (apenas transacções e metadados extraídos — o PDF original **não** é guardado)
