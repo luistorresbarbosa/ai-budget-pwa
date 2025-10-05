@@ -28,6 +28,7 @@ npm run dev      # Inicia servidor de desenvolvimento
 npm run build    # Compila a aplicação para produção
 npm run preview  # Pré-visualiza build de produção
 npm run test     # Executa testes unitários com Vitest
+npm run test:openai # Valida pedidos OpenAI usando variáveis de ambiente
 ```
 
 ## Integração com Firebase/Firestore
@@ -44,6 +45,41 @@ npm run test     # Executa testes unitários com Vitest
 3. Introduza a chave e, opcionalmente, um endpoint alternativo/base URL e o modelo a utilizar (por defeito é usado `gpt-4o-mini`).
 4. Utilize o botão **Testar ligação OpenAI** para validar a configuração — a app faz um pedido mínimo à API e apresenta a latência aproximada.
 5. Depois de validada, carregue um PDF na página de **Upload** para que a extração ocorra via OpenAI. Se a ligação falhar, a app recorre automaticamente ao mock interno para que o fluxo continue funcional.
+
+### Testar pedidos OpenAI via linha de comando
+
+Quando quiser validar rapidamente se as credenciais funcionam fora da interface, utilize o comando `npm run test:openai`. O script lê as seguintes variáveis de ambiente:
+
+- `OPENAI_API_KEY` (obrigatório)
+- `OPENAI_BASE_URL` (opcional, para provedores compatíveis)
+- `OPENAI_MODEL` (opcional, por defeito usa `gpt-4o-mini`)
+- `OPENAI_TEST_PDF` (opcional, caminho local para um PDF a enviar no teste de extração)
+- `OPENAI_ACCOUNT_CONTEXT` (opcional, envia uma dica de conta ao modelo)
+
+Exemplo de execução apenas com validação de ligação:
+
+```bash
+OPENAI_API_KEY=sk-... npm run test:openai
+```
+
+Exemplo a incluir um PDF de teste:
+
+```bash
+OPENAI_API_KEY=sk-... OPENAI_TEST_PDF=./exemplos/fatura.pdf npm run test:openai
+```
+
+O comando devolve a latência medida no endpoint escolhido e, quando for fornecido um PDF, mostra a resposta estruturada devolvida pela OpenAI.
+
+## Docker
+
+O projecto inclui um `Dockerfile` multi-stage que gera os artefactos com Vite e serve a PWA estática via Nginx.
+
+```bash
+docker build -t ai-budget-pwa .
+docker run --rm -p 8080:80 ai-budget-pwa
+```
+
+Após iniciar o container, a aplicação ficará disponível em `http://localhost:8080`.
 
 ## Próximos passos sugeridos
 

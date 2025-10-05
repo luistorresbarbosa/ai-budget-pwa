@@ -13,6 +13,6 @@
     "baseUrl": "./src",
     "outDir": "./dist/node"
   },
-  "include": ["vite.config.ts", "scripts"],
+  "include": ["vite.config.ts", "scripts", "src/services/**/*.ts", "src/data/**/*.ts"],
   "exclude": ["node_modules"]
 }
