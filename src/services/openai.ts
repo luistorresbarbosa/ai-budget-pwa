@@ -33,8 +33,10 @@ export interface OpenAIDocumentExtraction {
 
 interface ResponsesJsonSchemaFormat {
   type: 'json_schema';
-  name: string;
-  schema: Record<string, unknown>;
+  json_schema: {
+    name: string;
+    schema: Record<string, unknown>;
+  };
 }
 
 interface ResponsesTextConfig {
@@ -225,14 +227,16 @@ export async function validateOpenAIConnection(
       text: {
         format: {
           type: 'json_schema',
-          name: 'ping_validation',
-          schema: {
-            type: 'object',
-            properties: {
-              reply: { type: 'string', enum: ['pong'] }
-            },
-            required: ['reply'],
-            additionalProperties: false
+          json_schema: {
+            name: 'ping_validation',
+            schema: {
+              type: 'object',
+              properties: {
+                reply: { type: 'string', enum: ['pong'] }
+              },
+              required: ['reply'],
+              additionalProperties: false
+            }
           }
         }
       }
@@ -305,32 +309,34 @@ export async function extractPdfMetadataWithOpenAI({
         text: {
           format: {
             type: 'json_schema',
-            name: 'document_metadata',
-            schema: {
-              type: 'object',
-              properties: {
-                sourceType: {
-                  type: ['string', 'null'],
-                  enum: ['fatura', 'recibo', 'extracto', null]
+            json_schema: {
+              name: 'document_metadata',
+              schema: {
+                type: 'object',
+                properties: {
+                  sourceType: {
+                    type: ['string', 'null'],
+                    enum: ['fatura', 'recibo', 'extracto', null]
+                  },
+                  amount: {
+                    type: ['number', 'null']
+                  },
+                  currency: {
+                    type: ['string', 'null']
+                  },
+                  dueDate: {
+                    type: ['string', 'null']
+                  },
+                  accountHint: {
+                    type: ['string', 'null']
+                  },
+                  notes: {
+                    type: ['string', 'null']
+                  }
                 },
-                amount: {
-                  type: ['number', 'null']
-                },
-                currency: {
-                  type: ['string', 'null']
-                },
-                dueDate: {
-                  type: ['string', 'null']
-                },
-                accountHint: {
-                  type: ['string', 'null']
-                },
-                notes: {
-                  type: ['string', 'null']
-                }
-              },
-              required: ['sourceType', 'amount', 'currency', 'dueDate', 'accountHint', 'notes'],
-              additionalProperties: false
+                required: ['sourceType', 'amount', 'currency', 'dueDate', 'accountHint', 'notes'],
+                additionalProperties: false
+              }
             }
           }
         }
