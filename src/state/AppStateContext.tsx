@@ -22,6 +22,7 @@ import {
   mockTimeline,
   mockTransfers
 } from '../data/mockData';
+import { loadPersistedSettings, persistSettings } from './settingsPersistence';
 
 export interface AppState {
   accounts: Account[];
@@ -41,6 +42,19 @@ export interface AppState {
   updateSettings: (settings: Partial<AppSettings>) => void;
 }
 
+const DEFAULT_SETTINGS: AppSettings = {
+  autoDetectFixedExpenses: true
+};
+
+function resolveInitialSettings(initialState?: Partial<AppState>): AppSettings {
+  const persisted = loadPersistedSettings();
+  return {
+    ...DEFAULT_SETTINGS,
+    ...(persisted ?? {}),
+    ...(initialState?.settings ?? {})
+  } satisfies AppSettings;
+}
+
 export const createAppStore = (initialState?: Partial<AppState>) =>
   createStore<AppState>((set) => ({
     accounts: initialState?.accounts ?? mockAccounts,
@@ -48,11 +62,7 @@ export const createAppStore = (initialState?: Partial<AppState>) =>
     transfers: initialState?.transfers ?? mockTransfers,
     documents: initialState?.documents ?? mockDocuments,
     timeline: initialState?.timeline ?? mockTimeline,
-    settings:
-      initialState?.settings ??
-      ({
-        autoDetectFixedExpenses: true
-      } satisfies AppSettings),
+    settings: resolveInitialSettings(initialState),
     addDocument: (doc) =>
       set((state) => ({
         documents: [doc, ...state.documents]
@@ -71,9 +81,13 @@ export const createAppStore = (initialState?: Partial<AppState>) =>
     setDocuments: (documents) => set(() => ({ documents })),
     setTimeline: (timeline) => set(() => ({ timeline })),
     updateSettings: (settings) =>
-      set((state) => ({
-        settings: { ...state.settings, ...settings }
-      }))
+      set((state) => {
+        const merged = { ...state.settings, ...settings } satisfies AppSettings;
+        persistSettings(merged);
+        return {
+          settings: merged
+        };
+      })
   }));
 
 const AppStateContext = createContext<StoreApi<AppState> | null>(null);
