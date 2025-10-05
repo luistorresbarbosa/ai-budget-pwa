@@ -58,6 +58,8 @@ export interface TimelineEntry {
 
 export interface AppSettings {
   openAIApiKey?: string;
+  openAIBaseUrl?: string;
+  openAIModel?: string;
   firebaseConfig?: Record<string, string>;
   autoDetectFixedExpenses: boolean;
 }

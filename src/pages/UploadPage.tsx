@@ -19,6 +19,7 @@ const feedbackStyles: Record<UploadFeedback['type'], string> = {
 function UploadPage() {
   const documents = useAppState((state) => state.documents);
   const addDocument = useAppState((state) => state.addDocument);
+  const settings = useAppState((state) => state.settings);
   const [isUploading, setIsUploading] = useState(false);
   const [feedback, setFeedback] = useState<UploadFeedback | null>(null);
 
@@ -32,10 +33,24 @@ function UploadPage() {
     }
 
     setIsUploading(true);
-    setFeedback({ type: 'info', message: 'A extrair informação…' });
+    setFeedback({
+      type: 'info',
+      message: settings.openAIApiKey
+        ? 'A extrair informação via OpenAI…'
+        : 'A extrair informação em modo simulado (adicione a chave OpenAI nas definições para OCR real).'
+    });
 
     try {
-      const extraction = await extractPdfMetadata({ file });
+      const extraction = await extractPdfMetadata({
+        file,
+        openAI: settings.openAIApiKey
+          ? {
+              apiKey: settings.openAIApiKey,
+              baseUrl: settings.openAIBaseUrl,
+              model: settings.openAIModel
+            }
+          : undefined
+      });
       const metadata: DocumentMetadata = {
         id: crypto.randomUUID(),
         originalName: file.name,

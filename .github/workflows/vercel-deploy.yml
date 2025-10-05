@@ -1,0 +1,36 @@
+name: Trigger Vercel Deployments
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
+
+jobs:
+  trigger:
+    name: Call Vercel Deploy Hook
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger preview deployment
+        if: github.event_name == 'pull_request'
+        env:
+          DEPLOY_HOOK: ${{ secrets.VERCEL_PREVIEW_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$DEPLOY_HOOK" ]; then
+            echo "VERCEL_PREVIEW_DEPLOY_HOOK_URL not set. Skipping preview trigger."
+            exit 0
+          fi
+          curl -X POST "$DEPLOY_HOOK"
+      - name: Trigger production deployment
+        if: github.event_name == 'push'
+        env:
+          DEPLOY_HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$DEPLOY_HOOK" ]; then
+            echo "VERCEL_DEPLOY_HOOK_URL not set. Skipping production trigger."
+            exit 0
+          fi
+          curl -X POST "$DEPLOY_HOOK"
