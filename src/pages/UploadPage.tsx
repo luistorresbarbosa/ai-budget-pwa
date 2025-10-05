@@ -37,7 +37,7 @@ function UploadPage() {
       type: 'info',
       message: settings.openAIApiKey
         ? 'A extrair informação via OpenAI…'
-        : 'A extrair informação em modo simulado (adicione a chave OpenAI nas definições para OCR real).'
+        : 'A extrair informação localmente no browser (adicione a chave OpenAI nas definições para OCR avançado).'
     });
 
     try {

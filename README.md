@@ -3,7 +3,7 @@
 Aplicação web (PWA) para gestão inteligente de despesas pessoais. O projecto está configurado com [Vite](https://vitejs.dev/),
 React e TypeScript, incluindo mock data, estado global via Zustand e uma estrutura inicial para as principais áreas da app:
 
-- Upload de PDFs com extração de metadados via OpenAI (com fallback mock quando não existir chave).
+- Upload de PDFs com extração de metadados via OpenAI (com fallback local sem dependências externas).
 - Gestão de transferências entre contas.
 - Timeline de eventos financeiros.
 - Consulta de despesas com filtros.
@@ -44,7 +44,18 @@ npm run test:openai # Valida pedidos OpenAI usando variáveis de ambiente
 2. Abra a app e aceda a **Definições** → secção **OpenAI**.
 3. Introduza a chave e, opcionalmente, um endpoint alternativo/base URL e o modelo a utilizar (por defeito é usado `gpt-4o-mini`).
 4. Utilize o botão **Testar ligação OpenAI** para validar a configuração — a app faz um pedido mínimo à API e apresenta a latência aproximada.
-5. Depois de validada, carregue um PDF na página de **Upload** para que a extração ocorra via OpenAI. Se a ligação falhar, a app recorre automaticamente ao mock interno para que o fluxo continue funcional.
+5. Depois de validada, carregue um PDF na página de **Upload** para que a extração ocorra via OpenAI. Se a ligação falhar, a app recorre automaticamente ao motor local de OCR/heurísticas que corre no browser.
+
+### Extração local de PDFs
+
+Quando não houver chave OpenAI configurada, a aplicação recorre ao motor local baseado em [`pdfjs-dist`](https://github.com/mozilla/pdf.js) para ler o texto do PDF no próprio browser. A partir desse texto são aplicadas heurísticas para identificar:
+
+- Valores monetários (detecção de quantias em euros ou códigos de moeda).
+- Datas de vencimento em formatos ISO (`YYYY-MM-DD`) ou europeu (`DD/MM/YYYY`).
+- Sugestões de conta (IBANs ou menções explícitas na descrição).
+- Tipo do documento (`fatura`, `recibo` ou `extracto`) com base em palavras‑chave.
+
+O resultado é guardado apenas em memória local através do estado global da app, permitindo validar rapidamente a extração mesmo sem ligação externa ao Firebase ou à OpenAI.
 
 ### Testar pedidos OpenAI via linha de comando
 

@@ -5,6 +5,7 @@ import {
   type OpenAIDocumentExtraction,
   type OpenAIConnectionConfig
 } from './openai';
+import { extractMetadataLocally } from './pdfLocalExtractor';
 
 export interface PdfExtractionRequest {
   file: File;
@@ -48,25 +49,13 @@ async function extractWithOpenAI(request: PdfExtractionRequest): Promise<PdfExtr
   } satisfies PdfExtractionResult;
 }
 
-async function extractWithMockFallback(): Promise<PdfExtractionResult> {
-  await new Promise((resolve) => setTimeout(resolve, 600));
-  return {
-    sourceType: 'fatura',
-    amount: 42,
-    currency: 'EUR',
-    dueDate: new Date().toISOString(),
-    notes: 'Extração simulada (mock)'
-  } satisfies PdfExtractionResult;
-}
-
 export async function extractPdfMetadata(request: PdfExtractionRequest): Promise<PdfExtractionResult> {
-  try {
-    if (hasValidOpenAIConfig(request.openAI)) {
+  if (hasValidOpenAIConfig(request.openAI)) {
+    try {
       return await extractWithOpenAI(request);
+    } catch (error) {
+      console.error('Falha ao extrair dados com a OpenAI, a recorrer à extração local.', error);
     }
-    return await extractWithMockFallback();
-  } catch (error) {
-    console.error('Falha ao extrair dados com a OpenAI, a devolver mock.', error);
-    return await extractWithMockFallback();
   }
+  return await extractMetadataLocally(request.file, { accountContext: request.accountContext });
 }
