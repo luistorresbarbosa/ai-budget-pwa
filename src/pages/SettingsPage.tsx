@@ -11,8 +11,10 @@ import type { FirebaseConfig } from '../services/firebase';
 import {
   DEFAULT_OPENAI_BASE_URL,
   DEFAULT_OPENAI_MODEL,
+  listOpenAIModels,
   validateOpenAIConnection
 } from '../services/openai';
+import type { OpenAIBalanceInfo, OpenAIModelSummary } from '../services/openai';
 import {
   getIntegrationLogs,
   logFirebaseEvent,
@@ -31,12 +33,17 @@ function SettingsPage() {
   const [apiKey, setApiKey] = useState(settings.openAIApiKey ?? '');
   const [openAIBaseUrl, setOpenAIBaseUrl] = useState(settings.openAIBaseUrl ?? DEFAULT_OPENAI_BASE_URL);
   const [openAIModel, setOpenAIModel] = useState(settings.openAIModel ?? DEFAULT_OPENAI_MODEL);
+  const [availableOpenAIModels, setAvailableOpenAIModels] = useState<OpenAIModelSummary[]>([]);
+  const [isLoadingOpenAIModels, setIsLoadingOpenAIModels] = useState(false);
+  const [openAIModelsError, setOpenAIModelsError] = useState<string | null>(null);
   const [autoDetect, setAutoDetect] = useState(settings.autoDetectFixedExpenses);
   const [firebaseConfig, setFirebaseConfig] = useState(
     settings.firebaseConfig ? JSON.stringify(settings.firebaseConfig, null, 2) : ''
   );
   const [feedback, setFeedback] = useState<string | null>(null);
   const [openAITestFeedback, setOpenAITestFeedback] = useState<string | null>(null);
+  const [openAIBalance, setOpenAIBalance] = useState<OpenAIBalanceInfo | null>(null);
+  const [openAIBalanceError, setOpenAIBalanceError] = useState<string | null>(null);
   const [firebaseTestFeedback, setFirebaseTestFeedback] = useState<string | null>(null);
   const [isTestingOpenAI, setIsTestingOpenAI] = useState(false);
   const [isTestingFirebase, setIsTestingFirebase] = useState(false);
@@ -114,6 +121,130 @@ function SettingsPage() {
 
   const shouldShowOpenAILogsPagination = openAILogsTotal > logsPerPage;
   const shouldShowFirebaseLogsPagination = firebaseLogsTotal > logsPerPage;
+
+  const loadOpenAIModels = useCallback(
+    async (abortSignal?: AbortSignal) => {
+      const trimmedKey = apiKey.trim();
+      if (!trimmedKey) {
+        setAvailableOpenAIModels([]);
+        setOpenAIModelsError(null);
+        setIsLoadingOpenAIModels(false);
+        return;
+      }
+
+      setIsLoadingOpenAIModels(true);
+      setOpenAIModelsError(null);
+
+      try {
+        const models = await listOpenAIModels(
+          {
+            apiKey: trimmedKey,
+            baseUrl: openAIBaseUrl.trim() || undefined
+          },
+          abortSignal
+        );
+
+        if (abortSignal?.aborted) {
+          return;
+        }
+
+        setAvailableOpenAIModels(models);
+        setOpenAIModel((current) => {
+          if (current && models.some((model) => model.id === current)) {
+            return current;
+          }
+          const preferred =
+            models.find((model) => model.id === DEFAULT_OPENAI_MODEL) ?? models[0] ?? null;
+          return preferred ? preferred.id : current || DEFAULT_OPENAI_MODEL;
+        });
+      } catch (error) {
+        if (abortSignal?.aborted) {
+          return;
+        }
+        const message =
+          error instanceof Error ? error.message : 'Não foi possível carregar a lista de modelos.';
+        setOpenAIModelsError(message);
+        setAvailableOpenAIModels([]);
+      } finally {
+        if (!abortSignal?.aborted) {
+          setIsLoadingOpenAIModels(false);
+        }
+      }
+    },
+    [apiKey, openAIBaseUrl]
+  );
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadOpenAIModels(controller.signal);
+    return () => {
+      controller.abort();
+    };
+  }, [loadOpenAIModels]);
+
+  useEffect(() => {
+    setOpenAIBalance(null);
+    setOpenAIBalanceError(null);
+  }, [apiKey, openAIBaseUrl]);
+
+  const openAIModelOptions = useMemo(() => {
+    const options = availableOpenAIModels.map((model) => ({
+      value: model.id,
+      label: model.id
+    }));
+
+    if (openAIModel && !options.some((option) => option.value === openAIModel)) {
+      options.unshift({
+        value: openAIModel,
+        label: `${openAIModel} (personalizado)`
+      });
+    }
+
+    if (options.length === 0) {
+      options.push({ value: DEFAULT_OPENAI_MODEL, label: DEFAULT_OPENAI_MODEL });
+    }
+
+    return options;
+  }, [availableOpenAIModels, openAIModel]);
+
+  const formattedOpenAIBalance = useMemo(() => {
+    if (!openAIBalance) {
+      return null;
+    }
+    const currency = (openAIBalance.currency || 'USD').toUpperCase();
+    const formatAmount = (amount: number) => {
+      try {
+        return new Intl.NumberFormat('pt-PT', {
+          style: 'currency',
+          currency
+        }).format(amount);
+      } catch {
+        return `${amount.toFixed(2)} ${currency}`;
+      }
+    };
+
+    const available = formatAmount(openAIBalance.totalAvailable);
+    const granted = formatAmount(openAIBalance.totalGranted);
+    const used = formatAmount(openAIBalance.totalUsed);
+
+    const expiry =
+      typeof openAIBalance.expiresAt === 'number'
+        ? new Date(openAIBalance.expiresAt * 1000).toLocaleDateString('pt-PT')
+        : null;
+
+    return {
+      available,
+      granted,
+      used,
+      expiry
+    };
+  }, [openAIBalance]);
+
+  const handleRefreshOpenAIModels = useCallback(() => {
+    void loadOpenAIModels();
+  }, [loadOpenAIModels]);
+
+  const hasOpenAIApiKey = apiKey.trim().length > 0;
 
   const handleLogsPerPageChange = useCallback(
     (event: ChangeEvent<HTMLSelectElement>) => {
@@ -290,6 +421,8 @@ function SettingsPage() {
 
     setIsTestingOpenAI(true);
     setOpenAITestFeedback('A validar ligação à OpenAI…');
+    setOpenAIBalance(null);
+    setOpenAIBalanceError(null);
     logOpenAIEvent('A validar ligação à OpenAI…');
     try {
       const result = await validateOpenAIConnection(
@@ -305,15 +438,40 @@ function SettingsPage() {
         if (typeof result.latencyMs === 'number') {
           messageParts.push(`Latência aproximada: ${result.latencyMs}ms.`);
         }
+        if (result.balance) {
+          setOpenAIBalance(result.balance);
+          setOpenAIBalanceError(null);
+          const currency = (result.balance.currency || 'USD').toUpperCase();
+          const formattedAvailable = (() => {
+            try {
+              return new Intl.NumberFormat('pt-PT', {
+                style: 'currency',
+                currency
+              }).format(result.balance!.totalAvailable);
+            } catch {
+              return `${result.balance!.totalAvailable.toFixed(2)} ${currency}`;
+            }
+          })();
+          messageParts.push(`Saldo disponível: ${formattedAvailable}.`);
+        } else if (result.balanceError) {
+          setOpenAIBalanceError(result.balanceError);
+          messageParts.push(result.balanceError);
+        } else {
+          setOpenAIBalanceError(null);
+        }
         setOpenAITestFeedback(messageParts.join(' '));
         logOpenAIEvent(`Ligação validada com sucesso. Modelo: ${result.model}.`);
       } else {
         setOpenAITestFeedback(result.message);
+        setOpenAIBalance(null);
+        setOpenAIBalanceError(null);
         logOpenAIEvent(`Falha na validação da ligação: ${result.message}`);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erro desconhecido ao contactar a OpenAI.';
       setOpenAITestFeedback(`Falha ao validar ligação: ${message}`);
+      setOpenAIBalance(null);
+      setOpenAIBalanceError(null);
       logOpenAIEvent(`Erro ao contactar a OpenAI: ${message}`);
     } finally {
       setIsTestingOpenAI(false);
@@ -417,13 +575,36 @@ function SettingsPage() {
             </label>
             <label className="block space-y-2 text-sm text-slate-600">
               <span className="text-xs uppercase tracking-wide text-slate-400">Modelo</span>
-              <input
-                type="text"
-                placeholder={DEFAULT_OPENAI_MODEL}
-                value={openAIModel}
-                onChange={(event) => setOpenAIModel(event.target.value)}
-                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-900 focus:ring-slate-900/10"
-              />
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <select
+                  value={openAIModel}
+                  onChange={(event) => setOpenAIModel(event.target.value)}
+                  disabled={isLoadingOpenAIModels || (!hasOpenAIApiKey && availableOpenAIModels.length === 0)}
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10 disabled:cursor-not-allowed disabled:bg-slate-100"
+                >
+                  {openAIModelOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={handleRefreshOpenAIModels}
+                  disabled={!hasOpenAIApiKey || isLoadingOpenAIModels}
+                  className="inline-flex items-center justify-center rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600 shadow-sm transition hover:border-slate-400 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900"
+                >
+                  {isLoadingOpenAIModels ? 'A carregar…' : 'Atualizar'}
+                </button>
+              </div>
+              {!hasOpenAIApiKey && (
+                <p className="text-xs text-slate-400">
+                  Insira a chave da OpenAI para carregar modelos disponíveis automaticamente.
+                </p>
+              )}
+              {openAIModelsError && (
+                <p className="text-xs text-amber-600">{openAIModelsError}</p>
+              )}
             </label>
             <button
               type="button"
@@ -444,6 +625,42 @@ function SettingsPage() {
                   className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600 shadow-sm"
                 >
                   {openAITestFeedback}
+                </motion.p>
+              )}
+            </AnimatePresence>
+            <AnimatePresence>
+              {formattedOpenAIBalance && (
+                <motion.div
+                  key={`openai-balance-${formattedOpenAIBalance.available}-${formattedOpenAIBalance.used}`}
+                  initial={{ opacity: 0, y: -6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={{ duration: 0.25 }}
+                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600 shadow-sm"
+                >
+                  <p>
+                    Saldo disponível: <span className="font-semibold text-slate-700">{formattedOpenAIBalance.available}</span>
+                  </p>
+                  <p className="mt-1 text-[10px] uppercase tracking-wide text-slate-400">
+                    Limite: {formattedOpenAIBalance.granted} • Utilizado: {formattedOpenAIBalance.used}
+                    {formattedOpenAIBalance.expiry
+                      ? ` • Expira a ${formattedOpenAIBalance.expiry}`
+                      : ''}
+                  </p>
+                </motion.div>
+              )}
+            </AnimatePresence>
+            <AnimatePresence>
+              {openAIBalanceError && (
+                <motion.p
+                  key={openAIBalanceError}
+                  initial={{ opacity: 0, y: -6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={{ duration: 0.25 }}
+                  className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-700 shadow-sm"
+                >
+                  {openAIBalanceError}
                 </motion.p>
               )}
             </AnimatePresence>

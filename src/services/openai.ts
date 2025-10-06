@@ -45,6 +45,32 @@ export interface OpenAIValidationResult {
   message: string;
   model: string;
   latencyMs?: number;
+  balance?: OpenAIBalanceInfo;
+  balanceError?: string;
+}
+
+export interface OpenAIModelSummary {
+  id: string;
+  created?: number;
+  ownedBy?: string;
+}
+
+export interface OpenAIBalanceInfo {
+  totalGranted: number;
+  totalUsed: number;
+  totalAvailable: number;
+  expiresAt?: number | null;
+  currency?: string;
+}
+
+export class OpenAIBalanceUnavailableError extends Error {
+  public readonly reason: 'session_key_required' | 'forbidden' | 'unknown';
+
+  constructor(message: string, reason: 'session_key_required' | 'forbidden' | 'unknown' = 'unknown') {
+    super(message);
+    this.name = 'OpenAIBalanceUnavailableError';
+    this.reason = reason;
+  }
 }
 
 export interface OpenAIDocumentExtraction {
@@ -159,6 +185,147 @@ function extractJsonFromResponsePayload(payload: any): unknown {
     console.warn('Resposta OpenAI não é JSON válido, devolvendo texto cru.', error);
     return text;
   }
+}
+
+export async function listOpenAIModels(
+  config: OpenAIConnectionConfig,
+  signal?: AbortSignal
+): Promise<OpenAIModelSummary[]> {
+  const baseUrl = resolveBaseUrl(config.baseUrl);
+
+  logOpenAIEvent('→ GET /models');
+
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}/models`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`
+      },
+      signal
+    });
+  } catch (error) {
+    logOpenAIEvent('Falha ao obter lista de modelos da OpenAI.', {
+      details: error instanceof Error ? error.message : String(error)
+    });
+    throw error;
+  }
+
+  if (!response.ok) {
+    const message = await parseOpenAIError(response);
+    logOpenAIEvent('Erro ao obter lista de modelos da OpenAI.', {
+      details: message
+    });
+    throw new Error(message);
+  }
+
+  const payload = await response.json();
+
+  logOpenAIEvent('← Resposta OpenAI /models recebida.', {
+    details: summariseForLog(payload)
+  });
+
+  const entries = Array.isArray(payload?.data) ? payload.data : [];
+  const models: OpenAIModelSummary[] = entries
+    .map((entry: any) => {
+      const id = typeof entry?.id === 'string' ? entry.id : undefined;
+      if (!id) {
+        return undefined;
+      }
+      return {
+        id,
+        created: typeof entry?.created === 'number' ? entry.created : undefined,
+        ownedBy: typeof entry?.owned_by === 'string' ? entry.owned_by : undefined
+      } satisfies OpenAIModelSummary;
+    })
+    .filter(Boolean) as OpenAIModelSummary[];
+
+  models.sort((a, b) => {
+    if (a.id === DEFAULT_OPENAI_MODEL) {
+      return -1;
+    }
+    if (b.id === DEFAULT_OPENAI_MODEL) {
+      return 1;
+    }
+    return a.id.localeCompare(b.id, 'en');
+  });
+
+  return models;
+}
+
+export async function fetchOpenAIBalance(
+  config: OpenAIConnectionConfig,
+  signal?: AbortSignal
+): Promise<OpenAIBalanceInfo> {
+  const baseUrl = resolveBaseUrl(config.baseUrl);
+
+  logOpenAIEvent('→ GET /dashboard/billing/credit_grants');
+
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}/dashboard/billing/credit_grants`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`
+      },
+      signal
+    });
+  } catch (error) {
+    logOpenAIEvent('Falha ao obter saldo disponível da OpenAI.', {
+      details: error instanceof Error ? error.message : String(error)
+    });
+    throw error;
+  }
+
+  if (!response.ok) {
+    const message = await parseOpenAIError(response);
+    const normalised = message.toLowerCase();
+
+    const requiresSessionKey = normalised.includes('session key');
+    if (requiresSessionKey) {
+      const humanMessage =
+        'A OpenAI requer uma sessão autenticada no dashboard para consultar o saldo. Verifique o saldo diretamente na consola da OpenAI.';
+      logOpenAIEvent('Saldo indisponível via API: sessão do dashboard requerida.', {
+        details: message
+      });
+      throw new OpenAIBalanceUnavailableError(humanMessage, 'session_key_required');
+    }
+
+    if (response.status === 401 || response.status === 403) {
+      const humanMessage =
+        'Não foi possível consultar o saldo com a chave API fornecida. Confirme os acessos de faturação na conta da OpenAI.';
+      logOpenAIEvent('Saldo indisponível via API: acesso negado.', {
+        details: message
+      });
+      throw new OpenAIBalanceUnavailableError(humanMessage, 'forbidden');
+    }
+
+    logOpenAIEvent('Erro ao obter saldo disponível da OpenAI.', {
+      details: message
+    });
+    throw new Error(message);
+  }
+
+  const payload = await response.json();
+
+  logOpenAIEvent('← Resposta OpenAI /dashboard/billing/credit_grants recebida.', {
+    details: summariseForLog(payload)
+  });
+
+  const totalGranted = Number(payload?.total_granted) || 0;
+  const totalUsed = Number(payload?.total_used) || 0;
+  const totalAvailable = Number(payload?.total_available) || 0;
+  const expiresAt = typeof payload?.grants?.expires_at === 'number' ? payload.grants.expires_at : null;
+  const currencyEntry = payload?.grants?.data?.find?.((grant: any) => typeof grant?.currency === 'string');
+  const currency = currencyEntry?.currency ? String(currencyEntry.currency).toUpperCase() : undefined;
+
+  return {
+    totalGranted,
+    totalUsed,
+    totalAvailable,
+    expiresAt,
+    currency
+  };
 }
 
 async function uploadFileToOpenAI(
@@ -353,11 +520,31 @@ export async function validateOpenAIConnection(
 
   const parsed = extractJsonFromResponsePayload(payload) as { reply?: string } | undefined;
   if (parsed && parsed.reply === 'pong') {
+    let balance: OpenAIBalanceInfo | undefined;
+    let balanceError: string | undefined;
+    try {
+      balance = await fetchOpenAIBalance(config, signal);
+    } catch (error) {
+      if (error instanceof OpenAIBalanceUnavailableError) {
+        balanceError = error.message;
+        logOpenAIEvent('Aviso: saldo indisponível após validar a ligação.', {
+          details: error.message,
+          reason: error.reason
+        });
+      } else {
+        logOpenAIEvent('Aviso: não foi possível obter saldo disponível após validar a ligação.', {
+          details: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
+
     return {
       success: true,
       message: 'Ligação validada com sucesso.',
       model,
-      latencyMs
+      latencyMs,
+      balance,
+      balanceError
     };
   }
 
