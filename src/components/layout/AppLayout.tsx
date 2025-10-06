@@ -1,6 +1,6 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import type { PropsWithChildren } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { motion } from 'framer-motion';
 import type { LucideIcon } from 'lucide-react';
 import {
   CalendarDays,
@@ -127,21 +127,18 @@ export function AppLayout({ children }: PropsWithChildren) {
           </span>
         </header>
 
-        <AnimatePresence mode="wait">
-          <motion.main
-            key={location.pathname}
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -16 }}
-            transition={{ duration: 0.3, ease: 'easeOut' }}
-            className="flex-1 overflow-y-auto px-5 pb-32 pt-6 sm:px-8 sm:pb-12 sm:pt-8"
-            style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 8rem)' }}
-          >
-            <div className="mx-auto flex w-full max-w-5xl flex-col gap-10 pb-10">
-              {children}
-            </div>
-          </motion.main>
-        </AnimatePresence>
+        <motion.main
+          key={location.pathname}
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3, ease: 'easeOut' }}
+          className="flex-1 overflow-y-auto px-5 pb-32 pt-6 sm:px-8 sm:pb-12 sm:pt-8"
+          style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 8rem)' }}
+        >
+          <div className="mx-auto flex w-full max-w-5xl flex-col gap-10 pb-10">
+            {children}
+          </div>
+        </motion.main>
 
         <nav
           className="sticky bottom-0 left-0 right-0 border-t border-slate-200 bg-white/95 px-3 py-2 backdrop-blur-sm lg:hidden"
