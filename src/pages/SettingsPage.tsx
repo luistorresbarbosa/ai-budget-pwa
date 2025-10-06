@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAppState } from '../state/AppStateContext';
 import {
@@ -21,6 +21,10 @@ import {
   subscribeToIntegrationLogs
 } from '../services/integrationLogger';
 import type { IntegrationLogsState } from '../types/integrationLogs';
+import {
+  DEFAULT_INTEGRATION_LOGS_PAGE_SIZE,
+  MAX_INTEGRATION_LOGS
+} from '../types/integrationLogs';
 
 function SettingsPage() {
   const settings = useAppState((state) => state.settings);
@@ -38,6 +42,11 @@ function SettingsPage() {
   const [isTestingOpenAI, setIsTestingOpenAI] = useState(false);
   const [isTestingFirebase, setIsTestingFirebase] = useState(false);
   const [logsState, setLogsState] = useState<IntegrationLogsState>(() => getIntegrationLogs());
+  const [logsPerPage, setLogsPerPage] = useState(
+    settings.integrationLogsPageSize || DEFAULT_INTEGRATION_LOGS_PAGE_SIZE
+  );
+  const [openAILogsPage, setOpenAILogsPage] = useState(1);
+  const [firebaseLogsPage, setFirebaseLogsPage] = useState(1);
   const openAILogs = logsState.openai;
   const firebaseLogs = logsState.firebase;
   const firebaseConfigFromSettings = settings.firebaseConfig;
@@ -49,6 +58,77 @@ function SettingsPage() {
       setLogsState(state);
     });
   }, []);
+
+  useEffect(() => {
+    setLogsPerPage(settings.integrationLogsPageSize || DEFAULT_INTEGRATION_LOGS_PAGE_SIZE);
+  }, [settings.integrationLogsPageSize]);
+
+  const logsPerPageOptions = useMemo(() => {
+    const baseOptions = [5, 10, 15, 20, DEFAULT_INTEGRATION_LOGS_PAGE_SIZE, MAX_INTEGRATION_LOGS];
+    const filtered = baseOptions.filter((value) => value > 0 && value <= MAX_INTEGRATION_LOGS);
+    const unique = Array.from(new Set(filtered));
+    unique.sort((a, b) => a - b);
+    return unique;
+  }, []);
+
+  const logsPerPageSelectId = 'integration-logs-page-size';
+
+  const sortedOpenAILogs = useMemo(() => openAILogs.slice().reverse(), [openAILogs]);
+  const sortedFirebaseLogs = useMemo(() => firebaseLogs.slice().reverse(), [firebaseLogs]);
+
+  const openAILogsTotalPages = Math.max(1, Math.ceil(sortedOpenAILogs.length / logsPerPage));
+  const firebaseLogsTotalPages = Math.max(1, Math.ceil(sortedFirebaseLogs.length / logsPerPage));
+
+  useEffect(() => {
+    setOpenAILogsPage((current) => Math.min(current, openAILogsTotalPages));
+  }, [openAILogsTotalPages]);
+
+  useEffect(() => {
+    setFirebaseLogsPage((current) => Math.min(current, firebaseLogsTotalPages));
+  }, [firebaseLogsTotalPages]);
+
+  useEffect(() => {
+    setOpenAILogsPage(1);
+    setFirebaseLogsPage(1);
+  }, [logsPerPage]);
+
+  const paginatedOpenAILogs = useMemo(() => {
+    const start = (openAILogsPage - 1) * logsPerPage;
+    return sortedOpenAILogs.slice(start, start + logsPerPage);
+  }, [logsPerPage, openAILogsPage, sortedOpenAILogs]);
+
+  const paginatedFirebaseLogs = useMemo(() => {
+    const start = (firebaseLogsPage - 1) * logsPerPage;
+    return sortedFirebaseLogs.slice(start, start + logsPerPage);
+  }, [firebaseLogsPage, logsPerPage, sortedFirebaseLogs]);
+
+  const openAILogsTotal = sortedOpenAILogs.length;
+  const firebaseLogsTotal = sortedFirebaseLogs.length;
+
+  const openAILogsRangeStart = openAILogsTotal === 0 ? 0 : (openAILogsPage - 1) * logsPerPage + 1;
+  const openAILogsRangeEnd =
+    openAILogsTotal === 0 ? 0 : Math.min(openAILogsRangeStart + paginatedOpenAILogs.length - 1, openAILogsTotal);
+
+  const firebaseLogsRangeStart = firebaseLogsTotal === 0 ? 0 : (firebaseLogsPage - 1) * logsPerPage + 1;
+  const firebaseLogsRangeEnd =
+    firebaseLogsTotal === 0 ? 0 : Math.min(firebaseLogsRangeStart + paginatedFirebaseLogs.length - 1, firebaseLogsTotal);
+
+  const shouldShowOpenAILogsPagination = openAILogsTotal > logsPerPage;
+  const shouldShowFirebaseLogsPagination = firebaseLogsTotal > logsPerPage;
+
+  const handleLogsPerPageChange = useCallback(
+    (event: ChangeEvent<HTMLSelectElement>) => {
+      const nextValue = Number(event.target.value);
+      if (!Number.isInteger(nextValue) || nextValue <= 0) {
+        return;
+      }
+      setLogsPerPage(nextValue);
+      setOpenAILogsPage(1);
+      setFirebaseLogsPage(1);
+      updateSettings({ integrationLogsPageSize: nextValue });
+    },
+    [updateSettings]
+  );
 
   const logsSignature = useMemo(() => JSON.stringify(logsState), [logsState]);
   const firebaseConfigSignature = useMemo(
@@ -177,7 +257,8 @@ function SettingsPage() {
           normalizedBaseUrl && normalizedBaseUrl !== DEFAULT_OPENAI_BASE_URL ? normalizedBaseUrl : undefined,
         openAIModel: normalizedModel && normalizedModel !== DEFAULT_OPENAI_MODEL ? normalizedModel : undefined,
         autoDetectFixedExpenses: autoDetect,
-        firebaseConfig: firebaseSettings
+        firebaseConfig: firebaseSettings,
+        integrationLogsPageSize: logsPerPage
       });
       setOpenAIBaseUrl(normalizedBaseUrl || DEFAULT_OPENAI_BASE_URL);
       setOpenAIModel(normalizedModel || DEFAULT_OPENAI_MODEL);
@@ -440,78 +521,154 @@ function SettingsPage() {
         transition={{ delay: 0.15, duration: 0.35, ease: 'easeOut' }}
         className="space-y-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
       >
-        <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <header className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="space-y-1">
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Logs de ligação</p>
             <h2 className="text-lg font-semibold text-slate-900">Estado das integrações</h2>
             <p className="text-sm text-slate-500">Acompanhe o histórico recente de eventos das integrações com a OpenAI e o Firebase.</p>
           </div>
-          <button
-            type="button"
-            onClick={handleExportLogs}
-            className="inline-flex items-center justify-center rounded-2xl border border-slate-300 bg-white px-4 py-2 text-xs font-medium uppercase tracking-wide text-slate-600 shadow-sm transition hover:border-slate-400 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900"
-          >
-            Exportar logs (.txt)
-          </button>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end sm:gap-4">
+            <label
+              htmlFor={logsPerPageSelectId}
+              className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500 sm:flex-row sm:items-center sm:gap-3"
+            >
+              <span>Resultados por página</span>
+              <select
+                id={logsPerPageSelectId}
+                value={logsPerPage}
+                onChange={handleLogsPerPageChange}
+                className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-sm transition hover:border-slate-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900"
+              >
+                {logsPerPageOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              onClick={handleExportLogs}
+              className="inline-flex items-center justify-center rounded-2xl border border-slate-300 bg-white px-4 py-2 text-xs font-medium uppercase tracking-wide text-slate-600 shadow-sm transition hover:border-slate-400 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900"
+            >
+              Exportar logs (.txt)
+            </button>
+          </div>
         </header>
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 shadow-sm">
             <div className="flex items-center justify-between">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">OpenAI</p>
-              <span className="text-[10px] uppercase tracking-wide text-slate-400">Últimos {openAILogs.length} eventos</span>
+              <span className="text-[10px] uppercase tracking-wide text-slate-400">
+                {openAILogsTotal === 0 ? 'Sem eventos registados' : `Total de ${openAILogsTotal} eventos`}
+              </span>
             </div>
             <ul className="space-y-2 text-sm text-slate-600">
-              {openAILogs.length === 0 ? (
+              {openAILogsTotal === 0 ? (
                 <li className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-400 shadow-sm">
                   Sem eventos registados.
                 </li>
               ) : (
-                openAILogs
-                  .slice()
-                  .reverse()
-                  .map((entry) => (
-                    <li
-                      key={`${entry.timestamp}-${entry.message}`}
-                      className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-500 shadow-sm"
-                    >
-                      <span className="font-mono text-[10px] uppercase tracking-wide text-slate-400">
-                        {formatLogTimestamp.format(entry.timestamp)}
-                      </span>
-                      <br />
-                      {entry.message}
-                    </li>
-                  ))
+                paginatedOpenAILogs.map((entry) => (
+                  <li
+                    key={`${entry.timestamp}-${entry.message}`}
+                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-500 shadow-sm"
+                  >
+                    <span className="font-mono text-[10px] uppercase tracking-wide text-slate-400">
+                      {formatLogTimestamp.format(entry.timestamp)}
+                    </span>
+                    <br />
+                    {entry.message}
+                  </li>
+                ))
               )}
             </ul>
+            {openAILogsTotal > 0 && (
+              <div className="flex flex-col gap-2 pt-1 text-[10px] uppercase tracking-wide text-slate-400 sm:flex-row sm:items-center sm:justify-between">
+                <span>
+                  Mostrando {openAILogsRangeStart}–{openAILogsRangeEnd} de {openAILogsTotal} (página {openAILogsPage} de {openAILogsTotalPages})
+                </span>
+                {shouldShowOpenAILogsPagination && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setOpenAILogsPage((current) => Math.max(1, current - 1))}
+                      disabled={openAILogsPage === 1}
+                      className="inline-flex items-center justify-center rounded-full border border-slate-300 bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 shadow-sm transition hover:border-slate-400 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Anterior
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setOpenAILogsPage((current) => Math.min(openAILogsTotalPages, current + 1))
+                      }
+                      disabled={openAILogsPage === openAILogsTotalPages}
+                      className="inline-flex items-center justify-center rounded-full border border-slate-300 bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 shadow-sm transition hover:border-slate-400 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Seguinte
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
           <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 shadow-sm">
             <div className="flex items-center justify-between">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Firebase</p>
-              <span className="text-[10px] uppercase tracking-wide text-slate-400">Últimos {firebaseLogs.length} eventos</span>
+              <span className="text-[10px] uppercase tracking-wide text-slate-400">
+                {firebaseLogsTotal === 0 ? 'Sem eventos registados' : `Total de ${firebaseLogsTotal} eventos`}
+              </span>
             </div>
             <ul className="space-y-2 text-sm text-slate-600">
-              {firebaseLogs.length === 0 ? (
+              {firebaseLogsTotal === 0 ? (
                 <li className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-400 shadow-sm">
                   Sem eventos registados.
                 </li>
               ) : (
-                firebaseLogs
-                  .slice()
-                  .reverse()
-                  .map((entry) => (
-                    <li
-                      key={`${entry.timestamp}-${entry.message}`}
-                      className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-500 shadow-sm"
-                    >
-                      <span className="font-mono text-[10px] uppercase tracking-wide text-slate-400">
-                        {formatLogTimestamp.format(entry.timestamp)}
-                      </span>
-                      <br />
-                      {entry.message}
-                    </li>
-                  ))
+                paginatedFirebaseLogs.map((entry) => (
+                  <li
+                    key={`${entry.timestamp}-${entry.message}`}
+                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-500 shadow-sm"
+                  >
+                    <span className="font-mono text-[10px] uppercase tracking-wide text-slate-400">
+                      {formatLogTimestamp.format(entry.timestamp)}
+                    </span>
+                    <br />
+                    {entry.message}
+                  </li>
+                ))
               )}
             </ul>
+            {firebaseLogsTotal > 0 && (
+              <div className="flex flex-col gap-2 pt-1 text-[10px] uppercase tracking-wide text-slate-400 sm:flex-row sm:items-center sm:justify-between">
+                <span>
+                  Mostrando {firebaseLogsRangeStart}–{firebaseLogsRangeEnd} de {firebaseLogsTotal} (página {firebaseLogsPage} de {firebaseLogsTotalPages})
+                </span>
+                {shouldShowFirebaseLogsPagination && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setFirebaseLogsPage((current) => Math.max(1, current - 1))}
+                      disabled={firebaseLogsPage === 1}
+                      className="inline-flex items-center justify-center rounded-full border border-slate-300 bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 shadow-sm transition hover:border-slate-400 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Anterior
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setFirebaseLogsPage((current) => Math.min(firebaseLogsTotalPages, current + 1))
+                      }
+                      disabled={firebaseLogsPage === firebaseLogsTotalPages}
+                      className="inline-flex items-center justify-center rounded-full border border-slate-300 bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 shadow-sm transition hover:border-slate-400 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Seguinte
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </motion.section>
