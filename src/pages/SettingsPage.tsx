@@ -1,4 +1,4 @@
-import { FormEvent, useMemo, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAppState } from '../state/AppStateContext';
 import {
@@ -12,6 +12,25 @@ import {
   DEFAULT_OPENAI_MODEL,
   validateOpenAIConnection
 } from '../services/openai';
+import {
+  loadIntegrationLogs,
+  persistIntegrationLogs
+} from '../state/integrationLogsPersistence';
+import type { IntegrationLogEntry, IntegrationLogSource } from '../types/integrationLogs';
+import { MAX_INTEGRATION_LOGS } from '../types/integrationLogs';
+import { persistAllIntegrationLogsToFirebase, persistIntegrationLogToFirebase } from '../services/integrationLogs';
+
+const LOG_SLICE_SIZE = Math.max(MAX_INTEGRATION_LOGS - 1, 0);
+
+function appendLogEntry(logs: IntegrationLogEntry[], entry: IntegrationLogEntry): IntegrationLogEntry[] {
+  if (MAX_INTEGRATION_LOGS <= 0) {
+    return logs;
+  }
+  if (LOG_SLICE_SIZE <= 0) {
+    return [entry];
+  }
+  return [...logs.slice(-LOG_SLICE_SIZE), entry];
+}
 
 function SettingsPage() {
   const settings = useAppState((state) => state.settings);
@@ -26,8 +45,92 @@ function SettingsPage() {
   const [feedback, setFeedback] = useState<string | null>(null);
   const [testFeedback, setTestFeedback] = useState<string | null>(null);
   const [isTesting, setIsTesting] = useState(false);
-  const [openAILogs, setOpenAILogs] = useState<Array<{ timestamp: number; message: string }>>([]);
-  const [firebaseLogs, setFirebaseLogs] = useState<Array<{ timestamp: number; message: string }>>([]);
+  const storedLogs = useMemo(() => loadIntegrationLogs(), []);
+  const [openAILogs, setOpenAILogs] = useState<IntegrationLogEntry[]>(storedLogs.openai);
+  const [firebaseLogs, setFirebaseLogs] = useState<IntegrationLogEntry[]>(storedLogs.firebase);
+  const firebaseConfigFromSettings = settings.firebaseConfig;
+  const openAILogsRef = useRef(openAILogs);
+  const firebaseLogsRef = useRef(firebaseLogs);
+  const hasSyncedLogsWithFirebase = useRef(false);
+  const lastSyncedFirebaseConfig = useRef<string | null>(null);
+
+  useEffect(() => {
+    openAILogsRef.current = openAILogs;
+  }, [openAILogs]);
+
+  useEffect(() => {
+    firebaseLogsRef.current = firebaseLogs;
+  }, [firebaseLogs]);
+
+  useEffect(() => {
+    persistIntegrationLogs({ openai: openAILogs, firebase: firebaseLogs });
+  }, [openAILogs, firebaseLogs]);
+
+  useEffect(() => {
+    if (!firebaseConfigFromSettings || !validateFirebaseConfig(firebaseConfigFromSettings)) {
+      hasSyncedLogsWithFirebase.current = false;
+      lastSyncedFirebaseConfig.current = null;
+      return;
+    }
+    const serialisedConfig = JSON.stringify(firebaseConfigFromSettings);
+    if (lastSyncedFirebaseConfig.current !== serialisedConfig) {
+      hasSyncedLogsWithFirebase.current = false;
+    }
+    if (hasSyncedLogsWithFirebase.current) {
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        await persistAllIntegrationLogsToFirebase(firebaseConfigFromSettings, {
+          openai: openAILogsRef.current,
+          firebase: firebaseLogsRef.current
+        });
+        if (!cancelled) {
+          hasSyncedLogsWithFirebase.current = true;
+          lastSyncedFirebaseConfig.current = serialisedConfig;
+        }
+      } catch (error) {
+        console.error('Não foi possível sincronizar logs existentes com o Firebase.', error);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [firebaseConfigFromSettings]);
+
+  const persistLogRemotely = useCallback(
+    async (source: IntegrationLogSource, entry: IntegrationLogEntry) => {
+      if (!firebaseConfigFromSettings || !validateFirebaseConfig(firebaseConfigFromSettings)) {
+        return;
+      }
+      try {
+        await persistIntegrationLogToFirebase(firebaseConfigFromSettings, source, entry);
+      } catch (error) {
+        console.error('Não foi possível guardar o log no Firebase.', error);
+      }
+    },
+    [firebaseConfigFromSettings]
+  );
+
+  const pushOpenAILog = useCallback(
+    (message: string) => {
+      const entry: IntegrationLogEntry = { timestamp: Date.now(), message };
+      setOpenAILogs((logs) => appendLogEntry(logs, entry));
+      void persistLogRemotely('openai', entry);
+    },
+    [persistLogRemotely]
+  );
+
+  const pushFirebaseLog = useCallback(
+    (message: string) => {
+      const entry: IntegrationLogEntry = { timestamp: Date.now(), message };
+      setFirebaseLogs((logs) => appendLogEntry(logs, entry));
+      void persistLogRemotely('firebase', entry);
+    },
+    [persistLogRemotely]
+  );
 
   const formatLogTimestamp = useMemo(
     () =>
@@ -38,14 +141,6 @@ function SettingsPage() {
       }),
     []
   );
-
-  function pushOpenAILog(message: string) {
-    setOpenAILogs((logs) => [...logs.slice(-19), { timestamp: Date.now(), message }]);
-  }
-
-  function pushFirebaseLog(message: string) {
-    setFirebaseLogs((logs) => [...logs.slice(-19), { timestamp: Date.now(), message }]);
-  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -67,9 +162,13 @@ function SettingsPage() {
         return;
       }
       let firebaseSettings: typeof settings.firebaseConfig;
+      if (firebaseConfig.trim()) {
+        pushFirebaseLog('A validar configuração Firebase fornecida…');
+      }
       if (parsed && validateFirebaseConfig(parsed)) {
         firebaseSettings = parsed;
         await initializeFirebase(firebaseSettings);
+        pushFirebaseLog('Ligação ao Firebase inicializada com sucesso.');
       } else {
         firebaseSettings = undefined;
         await resetFirebase();
