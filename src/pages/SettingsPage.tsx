@@ -162,13 +162,9 @@ function SettingsPage() {
         return;
       }
       let firebaseSettings: typeof settings.firebaseConfig;
-      if (firebaseConfig.trim()) {
-        pushFirebaseLog('A validar configuração Firebase fornecida…');
-      }
       if (parsed && validateFirebaseConfig(parsed)) {
         firebaseSettings = parsed;
         await initializeFirebase(firebaseSettings);
-        pushFirebaseLog('Ligação ao Firebase inicializada com sucesso.');
       } else {
         firebaseSettings = undefined;
         await resetFirebase();
