@@ -1,4 +1,5 @@
 import type { AppSettings } from '../data/models';
+import { DEFAULT_INTEGRATION_LOGS_PAGE_SIZE, MAX_INTEGRATION_LOGS } from '../types/integrationLogs';
 import { validateFirebaseConfig } from '../services/firebase';
 import type { FirebaseConfig } from '../services/firebase';
 
@@ -60,6 +61,14 @@ function sanitiseSettings(settings: unknown): StoredSettings | null {
   if (typeof parsed.autoDetectFixedExpenses === 'boolean') {
     result.autoDetectFixedExpenses = parsed.autoDetectFixedExpenses;
   }
+  const logsPageSize = Number(parsed.integrationLogsPageSize);
+  if (
+    Number.isInteger(logsPageSize) &&
+    logsPageSize >= 1 &&
+    logsPageSize <= MAX_INTEGRATION_LOGS
+  ) {
+    result.integrationLogsPageSize = logsPageSize;
+  }
   const firebaseConfig = sanitiseFirebaseConfig(parsed.firebaseConfig);
   if (firebaseConfig) {
     result.firebaseConfig = firebaseConfig;
@@ -98,7 +107,8 @@ export function persistSettings(settings: AppSettings): void {
   }
   try {
     const payload: StoredSettings = {
-      autoDetectFixedExpenses: settings.autoDetectFixedExpenses
+      autoDetectFixedExpenses: settings.autoDetectFixedExpenses,
+      integrationLogsPageSize: settings.integrationLogsPageSize || DEFAULT_INTEGRATION_LOGS_PAGE_SIZE
     };
     if (settings.openAIApiKey) {
       payload.openAIApiKey = settings.openAIApiKey;

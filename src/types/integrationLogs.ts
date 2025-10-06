@@ -11,3 +11,4 @@ export interface IntegrationLogsState {
 }
 
 export const MAX_INTEGRATION_LOGS = 20;
+export const DEFAULT_INTEGRATION_LOGS_PAGE_SIZE = 5;
