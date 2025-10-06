@@ -287,6 +287,7 @@ function sanitiseSettings(settings: unknown): StoredSettings | null {
 
   const logsPageSize = pickNumericFromSources(generalSources, LOGS_PAGE_SIZE_CANDIDATES);
   if (
+    typeof logsPageSize === 'number' &&
     Number.isInteger(logsPageSize) &&
     logsPageSize >= 1 &&
     logsPageSize <= MAX_INTEGRATION_LOGS
