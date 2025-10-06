@@ -1,0 +1,41 @@
+{
+  "name": "ai-budget-pwa",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "test": "vitest",
+    "test:openai": "tsx scripts/test-openai.ts"
+  },
+  "dependencies": {
+    "firebase": "^12.3.0",
+    "framer-motion": "^12.23.22",
+    "lucide-react": "^0.471.0",
+    "pdfjs-dist": "^4.10.38",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.22.3",
+    "zustand": "^4.5.2"
+  },
+  "devDependencies": {
+    "@tailwindcss/forms": "^0.5.10",
+    "@testing-library/jest-dom": "^6.4.2",
+    "@testing-library/react": "^14.2.1",
+    "@testing-library/user-event": "^14.5.1",
+    "@types/react": "^18.2.64",
+    "@types/react-dom": "^18.2.19",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.21",
+    "jsdom": "^24.0.0",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.15",
+    "tsx": "^4.20.6",
+    "typescript": "^5.4.3",
+    "vite": "^5.2.6",
+    "vite-plugin-pwa": "^0.17.5",
+    "vitest": "^1.4.0"
+  }
+}

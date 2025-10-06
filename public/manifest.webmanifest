@@ -1,0 +1,23 @@
+{
+  "name": "AI Budget",
+  "short_name": "AI Budget",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#0f172a",
+  "description": "Gestão inteligente de despesas pessoais com apoio AI.",
+  "icons": [
+    {
+      "src": "https://cdn.jsdelivr.net/npm/lucide-static@0.360.0/icons/wallet.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "https://cdn.jsdelivr.net/npm/lucide-static@0.360.0/icons/piggy-bank.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}
