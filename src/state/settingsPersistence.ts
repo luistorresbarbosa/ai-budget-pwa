@@ -1,5 +1,6 @@
 import type { AppSettings } from '../data/models';
 import { validateFirebaseConfig } from '../services/firebase';
+import type { FirebaseConfig } from '../services/firebase';
 
 const SETTINGS_STORAGE_KEY = 'ai-budget-settings';
 
@@ -22,7 +23,7 @@ function getStorage(): StorageLike | null {
   return null;
 }
 
-function sanitiseFirebaseConfig(value: unknown): Record<string, string> | undefined {
+function sanitiseFirebaseConfig(value: unknown): FirebaseConfig | undefined {
   if (!value || typeof value !== 'object') {
     return undefined;
   }
@@ -32,7 +33,7 @@ function sanitiseFirebaseConfig(value: unknown): Record<string, string> | undefi
   if (!entries.length) {
     return undefined;
   }
-  const candidate = Object.fromEntries(entries) as Record<string, string>;
+  const candidate = Object.fromEntries(entries) as FirebaseConfig;
   if (!validateFirebaseConfig(candidate)) {
     return undefined;
   }
