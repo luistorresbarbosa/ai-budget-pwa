@@ -150,6 +150,7 @@ function SettingsPage() {
 
     (async () => {
       try {
+        const { persistAllIntegrationLogsToFirebase } = await import('../services/integrationLogs');
         await persistAllIntegrationLogsToFirebase(settingsFirebaseConfig, logsState);
         lastSyncedLogsSignatureRef.current = signature;
       } catch (error) {
