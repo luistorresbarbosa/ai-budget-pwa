@@ -528,8 +528,10 @@ export async function validateOpenAIConnection(
       if (error instanceof OpenAIBalanceUnavailableError) {
         balanceError = error.message;
         logOpenAIEvent('Aviso: saldo indisponível após validar a ligação.', {
-          details: error.message,
-          reason: error.reason
+          details: {
+            message: error.message,
+            reason: error.reason
+          }
         });
       } else {
         logOpenAIEvent('Aviso: não foi possível obter saldo disponível após validar a ligação.', {
