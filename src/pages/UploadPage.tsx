@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { CalendarDays, Euro, FileText, Loader2, Trash2, UploadCloud } from 'lucide-react';
 import { useAppState } from '../state/AppStateContext';
 import type { DocumentMetadata } from '../data/models';
-import { extractPdfMetadata } from '../services/pdfParser';
+import { extractPdfMetadata, isPdfFile } from '../services/pdfParser';
 import { persistDocumentMetadata, removeDocumentMetadata } from '../services/documents';
 import { validateFirebaseConfig } from '../services/firebase';
 
@@ -31,7 +31,7 @@ function UploadPage() {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    if (file.type !== 'application/pdf') {
+    if (!isPdfFile(file)) {
       setFeedback({ type: 'error', message: 'Por favor escolha um ficheiro PDF.' });
       event.target.value = '';
       return;
