@@ -24,7 +24,7 @@ export async function persistIntegrationLogToFirebase(
   entry: IntegrationLogEntry
 ): Promise<void> {
   const { db } = await initializeFirebase(config);
-  await saveDocument(db, COLLECTION_PATH, toDocument(source, entry));
+  await saveDocument(db, COLLECTION_PATH, toDocument(source, entry), { skipLog: true });
 }
 
 export async function persistAllIntegrationLogsToFirebase(
@@ -34,10 +34,10 @@ export async function persistAllIntegrationLogsToFirebase(
   const { db } = await initializeFirebase(config);
   const tasks: Array<Promise<void>> = [];
   for (const entry of logs.openai) {
-    tasks.push(saveDocument(db, COLLECTION_PATH, toDocument('openai', entry)));
+    tasks.push(saveDocument(db, COLLECTION_PATH, toDocument('openai', entry), { skipLog: true }));
   }
   for (const entry of logs.firebase) {
-    tasks.push(saveDocument(db, COLLECTION_PATH, toDocument('firebase', entry)));
+    tasks.push(saveDocument(db, COLLECTION_PATH, toDocument('firebase', entry), { skipLog: true }));
   }
   await Promise.all(tasks);
 }

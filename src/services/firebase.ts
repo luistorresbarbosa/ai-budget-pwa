@@ -1,5 +1,6 @@
 import { FirebaseApp, deleteApp, getApps, initializeApp } from 'firebase/app';
 import { Firestore, getFirestore } from 'firebase/firestore';
+import { logFirebaseEvent } from './integrationLogger';
 
 export interface FirebaseConfig {
   apiKey: string;
@@ -56,20 +57,37 @@ export async function initializeFirebase(config: FirebaseConfig): Promise<{
   }
 
   if (firebaseApp && cachedConfig && configsAreEqual(cachedConfig, config)) {
+    logFirebaseEvent('Reutilização de instância Firebase em cache.', {
+      details: { projectId: config.projectId }
+    });
     return { app: firebaseApp, db: firestoreDb as Firestore };
   }
 
   if (firebaseApp) {
+    logFirebaseEvent('Reinicialização da app Firebase anterior.', {
+      details: { projectId: cachedConfig?.projectId }
+    });
     await deleteApp(firebaseApp);
     firebaseApp = null;
     firestoreDb = null;
     cachedConfig = null;
   }
 
+  logFirebaseEvent('→ Inicializar Firebase.', {
+    details: {
+      projectId: config.projectId,
+      authDomain: config.authDomain
+    }
+  });
   const app = initializeApp(config);
   firebaseApp = app;
   firestoreDb = getFirestore(app);
   cachedConfig = cloneConfig(config);
+  logFirebaseEvent('← Firebase inicializado com sucesso.', {
+    details: {
+      projectId: config.projectId
+    }
+  });
   return { app, db: firestoreDb };
 }
 
@@ -101,9 +119,15 @@ export function isFirebaseInitialized(): boolean {
 
 export async function resetFirebase(): Promise<void> {
   if (firebaseApp) {
+    logFirebaseEvent('A terminar instância Firebase activa.', {
+      details: { projectId: cachedConfig?.projectId }
+    });
     await deleteApp(firebaseApp);
   }
   firebaseApp = null;
   firestoreDb = null;
   cachedConfig = null;
+  logFirebaseEvent('Estado Firebase limpo.', {
+    details: 'Instância e cache reiniciadas.'
+  });
 }

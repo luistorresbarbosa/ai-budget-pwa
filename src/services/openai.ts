@@ -1,3 +1,5 @@
+import { logOpenAIEvent } from './integrationLogger';
+
 const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULT_OPENAI_MODEL = 'gpt-4o-mini';
 
@@ -6,6 +8,30 @@ function now(): number {
     return performance.now();
   }
   return Date.now();
+}
+
+function summariseForLog(value: unknown): string {
+  if (value == null) {
+    return 'null';
+  }
+  if (typeof value === 'string') {
+    return value.length > 280 ? `${value.slice(0, 277)}…` : value;
+  }
+  try {
+    const serialised = JSON.stringify(
+      value,
+      (_key, entry) => {
+        if (typeof entry === 'string' && entry.length > 120) {
+          return `${entry.slice(0, 117)}…`;
+        }
+        return entry;
+      },
+      2
+    );
+    return serialised.length > 600 ? `${serialised.slice(0, 597)}…` : serialised;
+  } catch {
+    return String(value);
+  }
 }
 
 export interface OpenAIConnectionConfig {
@@ -145,23 +171,57 @@ async function uploadFileToOpenAI(
   formData.append('purpose', 'assistants');
   formData.append('file', file, file.name);
 
-  const response = await fetch(`${baseUrl}/files`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${config.apiKey}`
-    },
-    body: formData,
-    signal
+  logOpenAIEvent('→ POST /files', {
+    details: {
+      name: file.name,
+      size: file.size,
+      type: file.type || 'desconhecido'
+    }
   });
 
+  let response: Response;
+
+  try {
+    response = await fetch(`${baseUrl}/files`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`
+      },
+      body: formData,
+      signal
+    });
+  } catch (error) {
+    logOpenAIEvent('Falha ao enviar ficheiro para a OpenAI.', {
+      details: error instanceof Error ? error.message : String(error)
+    });
+    throw error;
+  }
+
   if (!response.ok) {
-    throw new Error(await parseOpenAIError(response));
+    const errorMessage = await parseOpenAIError(response);
+    logOpenAIEvent('Resposta de erro ao carregar ficheiro na OpenAI.', {
+      details: {
+        status: response.status,
+        message: errorMessage
+      }
+    });
+    throw new Error(errorMessage);
   }
 
   const payload = await response.json();
   if (!payload?.id) {
+    logOpenAIEvent('Resposta inesperada ao carregar ficheiro na OpenAI.', {
+      details: summariseForLog(payload)
+    });
     throw new Error('Resposta inesperada ao carregar o ficheiro para a OpenAI.');
   }
+
+  logOpenAIEvent('← POST /files concluído com sucesso.', {
+    details: {
+      id: payload.id,
+      bytes: file.size
+    }
+  });
 
   return { id: payload.id };
 }
@@ -169,14 +229,23 @@ async function uploadFileToOpenAI(
 async function deleteOpenAIFile(fileId: string, config: OpenAIConnectionConfig): Promise<void> {
   const baseUrl = resolveBaseUrl(config.baseUrl);
   try {
+    logOpenAIEvent('→ DELETE /files', {
+      details: { id: fileId }
+    });
     await fetch(`${baseUrl}/files/${fileId}`, {
       method: 'DELETE',
       headers: {
         Authorization: `Bearer ${config.apiKey}`
       }
     });
+    logOpenAIEvent('← DELETE /files concluído.', {
+      details: { id: fileId }
+    });
   } catch (error) {
     console.warn('Não foi possível remover o ficheiro temporário da OpenAI.', error);
+    logOpenAIEvent('Falha ao remover ficheiro temporário na OpenAI.', {
+      details: error instanceof Error ? error.message : String(error)
+    });
   }
 }
 
@@ -186,21 +255,59 @@ async function callOpenAIResponses(
   signal?: AbortSignal
 ): Promise<any> {
   const baseUrl = resolveBaseUrl(config.baseUrl);
-  const response = await fetch(`${baseUrl}/responses`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${config.apiKey}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(request),
-    signal
+  logOpenAIEvent('→ POST /responses', {
+    details: {
+      model: request.model,
+      textPromptPreview: summariseForLog(
+        request.input
+          .flatMap((entry) => entry.content)
+          .filter((content) => 'text' in content)
+          .map((content) => (content as { text?: string }).text || '')
+          .join('\n')
+      ),
+      hasFile: request.input.some((entry) => entry.content.some((content) => 'file_id' in content))
+    }
   });
 
-  if (!response.ok) {
-    throw new Error(await parseOpenAIError(response));
+  let response: Response;
+
+  try {
+    response = await fetch(`${baseUrl}/responses`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(request),
+      signal
+    });
+  } catch (error) {
+    logOpenAIEvent('Falha ao contactar a OpenAI (endpoint /responses).', {
+      details: error instanceof Error ? error.message : String(error)
+    });
+    throw error;
   }
 
-  return response.json();
+  if (!response.ok) {
+    const errorMessage = await parseOpenAIError(response);
+    logOpenAIEvent('Resposta de erro da OpenAI (endpoint /responses).', {
+      details: {
+        status: response.status,
+        message: errorMessage
+      }
+    });
+    throw new Error(errorMessage);
+  }
+
+  const payload = await response.json();
+  logOpenAIEvent('← Resposta OpenAI /responses recebida.', {
+    details: {
+      status: response.status,
+      body: summariseForLog(payload)
+    }
+  });
+
+  return payload;
 }
 
 export async function validateOpenAIConnection(
