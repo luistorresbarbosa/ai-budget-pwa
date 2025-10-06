@@ -1,4 +1,4 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAppState } from '../state/AppStateContext';
 import {
@@ -12,6 +12,25 @@ import {
   DEFAULT_OPENAI_MODEL,
   validateOpenAIConnection
 } from '../services/openai';
+import {
+  loadIntegrationLogs,
+  persistIntegrationLogs
+} from '../state/integrationLogsPersistence';
+import type { IntegrationLogEntry, IntegrationLogSource } from '../types/integrationLogs';
+import { MAX_INTEGRATION_LOGS } from '../types/integrationLogs';
+import { persistAllIntegrationLogsToFirebase, persistIntegrationLogToFirebase } from '../services/integrationLogs';
+
+const LOG_SLICE_SIZE = Math.max(MAX_INTEGRATION_LOGS - 1, 0);
+
+function appendLogEntry(logs: IntegrationLogEntry[], entry: IntegrationLogEntry): IntegrationLogEntry[] {
+  if (MAX_INTEGRATION_LOGS <= 0) {
+    return logs;
+  }
+  if (LOG_SLICE_SIZE <= 0) {
+    return [entry];
+  }
+  return [...logs.slice(-LOG_SLICE_SIZE), entry];
+}
 
 function SettingsPage() {
   const settings = useAppState((state) => state.settings);
@@ -26,6 +45,102 @@ function SettingsPage() {
   const [feedback, setFeedback] = useState<string | null>(null);
   const [testFeedback, setTestFeedback] = useState<string | null>(null);
   const [isTesting, setIsTesting] = useState(false);
+  const storedLogs = useMemo(() => loadIntegrationLogs(), []);
+  const [openAILogs, setOpenAILogs] = useState<IntegrationLogEntry[]>(storedLogs.openai);
+  const [firebaseLogs, setFirebaseLogs] = useState<IntegrationLogEntry[]>(storedLogs.firebase);
+  const firebaseConfigFromSettings = settings.firebaseConfig;
+  const openAILogsRef = useRef(openAILogs);
+  const firebaseLogsRef = useRef(firebaseLogs);
+  const hasSyncedLogsWithFirebase = useRef(false);
+  const lastSyncedFirebaseConfig = useRef<string | null>(null);
+
+  useEffect(() => {
+    openAILogsRef.current = openAILogs;
+  }, [openAILogs]);
+
+  useEffect(() => {
+    firebaseLogsRef.current = firebaseLogs;
+  }, [firebaseLogs]);
+
+  useEffect(() => {
+    persistIntegrationLogs({ openai: openAILogs, firebase: firebaseLogs });
+  }, [openAILogs, firebaseLogs]);
+
+  useEffect(() => {
+    if (!firebaseConfigFromSettings || !validateFirebaseConfig(firebaseConfigFromSettings)) {
+      hasSyncedLogsWithFirebase.current = false;
+      lastSyncedFirebaseConfig.current = null;
+      return;
+    }
+    const serialisedConfig = JSON.stringify(firebaseConfigFromSettings);
+    if (lastSyncedFirebaseConfig.current !== serialisedConfig) {
+      hasSyncedLogsWithFirebase.current = false;
+    }
+    if (hasSyncedLogsWithFirebase.current) {
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        await persistAllIntegrationLogsToFirebase(firebaseConfigFromSettings, {
+          openai: openAILogsRef.current,
+          firebase: firebaseLogsRef.current
+        });
+        if (!cancelled) {
+          hasSyncedLogsWithFirebase.current = true;
+          lastSyncedFirebaseConfig.current = serialisedConfig;
+        }
+      } catch (error) {
+        console.error('Não foi possível sincronizar logs existentes com o Firebase.', error);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [firebaseConfigFromSettings]);
+
+  const persistLogRemotely = useCallback(
+    async (source: IntegrationLogSource, entry: IntegrationLogEntry) => {
+      if (!firebaseConfigFromSettings || !validateFirebaseConfig(firebaseConfigFromSettings)) {
+        return;
+      }
+      try {
+        await persistIntegrationLogToFirebase(firebaseConfigFromSettings, source, entry);
+      } catch (error) {
+        console.error('Não foi possível guardar o log no Firebase.', error);
+      }
+    },
+    [firebaseConfigFromSettings]
+  );
+
+  const pushOpenAILog = useCallback(
+    (message: string) => {
+      const entry: IntegrationLogEntry = { timestamp: Date.now(), message };
+      setOpenAILogs((logs) => appendLogEntry(logs, entry));
+      void persistLogRemotely('openai', entry);
+    },
+    [persistLogRemotely]
+  );
+
+  const pushFirebaseLog = useCallback(
+    (message: string) => {
+      const entry: IntegrationLogEntry = { timestamp: Date.now(), message };
+      setFirebaseLogs((logs) => appendLogEntry(logs, entry));
+      void persistLogRemotely('firebase', entry);
+    },
+    [persistLogRemotely]
+  );
+
+  const formatLogTimestamp = useMemo(
+    () =>
+      new Intl.DateTimeFormat('pt-PT', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      }),
+    []
+  );
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -35,22 +150,33 @@ function SettingsPage() {
         ? (JSON.parse(normalizedConfig) as Record<string, unknown>)
         : undefined;
       if (parsed && looksLikeServiceAccountConfig(parsed)) {
+        pushFirebaseLog('Configuração detectada como Service Account — requer configuração Web do Firebase.');
         setFeedback(
           'O JSON fornecido parece ser uma credencial de Service Account. Obtenha a configuração Web do Firebase (apiKey, authDomain, projectId, …) na consola do Firebase.'
         );
         return;
       }
       if (parsed && !validateFirebaseConfig(parsed)) {
+        pushFirebaseLog('Configuração Firebase incompleta: campos obrigatórios em falta.');
         setFeedback('Configuração Firebase incompleta.');
         return;
       }
       let firebaseSettings: typeof settings.firebaseConfig;
+      if (firebaseConfig.trim()) {
+        pushFirebaseLog('A validar configuração Firebase fornecida…');
+      }
       if (parsed && validateFirebaseConfig(parsed)) {
         firebaseSettings = parsed;
         await initializeFirebase(firebaseSettings);
+        pushFirebaseLog('Ligação ao Firebase inicializada com sucesso.');
       } else {
         firebaseSettings = undefined;
         await resetFirebase();
+        if (parsed) {
+          pushFirebaseLog('Configuração Firebase inválida: faltam campos obrigatórios.');
+        } else {
+          pushFirebaseLog('Configuração Firebase removida.');
+        }
       }
       const normalizedBaseUrl = openAIBaseUrl.trim();
       const normalizedModel = openAIModel.trim();
@@ -75,21 +201,25 @@ function SettingsPage() {
       console.error(error);
       if (error instanceof SyntaxError) {
         setFeedback('JSON inválido. Verifique a configuração do Firebase.');
+        pushFirebaseLog('JSON inválido fornecido. Falha ao analisar a configuração do Firebase.');
         return;
       }
       const message = error instanceof Error ? error.message : 'Motivo desconhecido';
       setFeedback(`Não foi possível guardar as definições: ${message}`);
+      pushFirebaseLog(`Erro ao guardar as definições: ${message}`);
     }
   }
 
   async function handleTestOpenAI() {
     if (!apiKey) {
       setTestFeedback('Insira uma chave da OpenAI antes de testar a ligação.');
+      pushOpenAILog('Teste cancelado: chave da OpenAI em falta.');
       return;
     }
 
     setIsTesting(true);
     setTestFeedback('A validar ligação à OpenAI…');
+    pushOpenAILog('A validar ligação à OpenAI…');
     try {
       const result = await validateOpenAIConnection(
         {
@@ -105,12 +235,15 @@ function SettingsPage() {
           messageParts.push(`Latência aproximada: ${result.latencyMs}ms.`);
         }
         setTestFeedback(messageParts.join(' '));
+        pushOpenAILog(`Ligação validada com sucesso. Modelo: ${result.model}.`);
       } else {
         setTestFeedback(result.message);
+        pushOpenAILog(`Falha na validação da ligação: ${result.message}`);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erro desconhecido ao contactar a OpenAI.';
       setTestFeedback(`Falha ao validar ligação: ${message}`);
+      pushOpenAILog(`Erro ao contactar a OpenAI: ${message}`);
     } finally {
       setIsTesting(false);
     }
@@ -235,6 +368,78 @@ function SettingsPage() {
           )}
         </AnimatePresence>
       </motion.form>
+      <motion.section
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.15, duration: 0.35, ease: 'easeOut' }}
+        className="space-y-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
+      >
+        <header className="space-y-1">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Logs de ligação</p>
+          <h2 className="text-lg font-semibold text-slate-900">Estado das integrações</h2>
+          <p className="text-sm text-slate-500">Acompanhe o histórico recente de eventos das integrações com a OpenAI e o Firebase.</p>
+        </header>
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">OpenAI</p>
+              <span className="text-[10px] uppercase tracking-wide text-slate-400">Últimos {openAILogs.length} eventos</span>
+            </div>
+            <ul className="space-y-2 text-sm text-slate-600">
+              {openAILogs.length === 0 ? (
+                <li className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-400 shadow-sm">
+                  Sem eventos registados.
+                </li>
+              ) : (
+                openAILogs
+                  .slice()
+                  .reverse()
+                  .map((entry) => (
+                    <li
+                      key={`${entry.timestamp}-${entry.message}`}
+                      className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-500 shadow-sm"
+                    >
+                      <span className="font-mono text-[10px] uppercase tracking-wide text-slate-400">
+                        {formatLogTimestamp.format(entry.timestamp)}
+                      </span>
+                      <br />
+                      {entry.message}
+                    </li>
+                  ))
+              )}
+            </ul>
+          </div>
+          <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Firebase</p>
+              <span className="text-[10px] uppercase tracking-wide text-slate-400">Últimos {firebaseLogs.length} eventos</span>
+            </div>
+            <ul className="space-y-2 text-sm text-slate-600">
+              {firebaseLogs.length === 0 ? (
+                <li className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-400 shadow-sm">
+                  Sem eventos registados.
+                </li>
+              ) : (
+                firebaseLogs
+                  .slice()
+                  .reverse()
+                  .map((entry) => (
+                    <li
+                      key={`${entry.timestamp}-${entry.message}`}
+                      className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-500 shadow-sm"
+                    >
+                      <span className="font-mono text-[10px] uppercase tracking-wide text-slate-400">
+                        {formatLogTimestamp.format(entry.timestamp)}
+                      </span>
+                      <br />
+                      {entry.message}
+                    </li>
+                  ))
+              )}
+            </ul>
+          </div>
+        </div>
+      </motion.section>
     </motion.section>
   );
 }
