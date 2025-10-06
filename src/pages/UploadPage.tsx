@@ -62,6 +62,11 @@ function UploadPage() {
     });
 
     try {
+      const normalizedName = file.name.toLocaleLowerCase();
+      const existingDocument = documents.find(
+        (document) => document.originalName.toLocaleLowerCase() === normalizedName
+      );
+      const nowIsoString = new Date().toISOString();
       const extraction = await extractPdfMetadata({
         file,
         openAI: settings.openAIApiKey
@@ -73,9 +78,9 @@ function UploadPage() {
           : undefined
       });
       const metadata: DocumentMetadata = {
-        id: crypto.randomUUID(),
+        id: existingDocument?.id ?? crypto.randomUUID(),
         originalName: file.name,
-        uploadDate: new Date().toISOString(),
+        uploadDate: nowIsoString,
         sourceType: extraction.sourceType ?? 'fatura',
         amount: extraction.amount,
         currency: extraction.currency,
@@ -87,7 +92,12 @@ function UploadPage() {
 
       await persistDocumentMetadata(metadata, settings.firebaseConfig);
       addDocument(metadata);
-      setFeedback({ type: 'success', message: 'Documento processado e guardado no Firebase.' });
+      setFeedback({
+        type: 'success',
+        message: existingDocument
+          ? 'Documento atualizado e guardado no Firebase.'
+          : 'Documento processado e guardado no Firebase.'
+      });
     } catch (error) {
       console.error(error);
       setFeedback({
