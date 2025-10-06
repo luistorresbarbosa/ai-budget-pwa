@@ -16,6 +16,7 @@ export interface Expense {
   accountId: string;
   description: string;
   category: string;
+  documentId?: string;
   amount: number;
   currency: string;
   dueDate: string;

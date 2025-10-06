@@ -28,9 +28,11 @@ export interface AppState {
   addDocument: (doc: DocumentMetadata) => void;
   addExpense: (expense: Expense) => void;
   addTransfer: (transfer: Transfer) => void;
+  addTimelineEntry: (entry: TimelineEntry) => void;
   removeDocument: (documentId: string) => void;
   removeExpense: (expenseId: string) => void;
   removeTransfer: (transferId: string) => void;
+  removeTimelineEntry: (entryId: string) => void;
   setAccounts: (accounts: Account[]) => void;
   setExpenses: (expenses: Expense[]) => void;
   setTransfers: (transfers: Transfer[]) => void;
@@ -73,6 +75,10 @@ export const createAppStore = (initialState?: Partial<AppState>) =>
       set((state) => ({
         transfers: [transfer, ...state.transfers.filter((existing) => existing.id !== transfer.id)]
       })),
+    addTimelineEntry: (entry) =>
+      set((state) => ({
+        timeline: [entry, ...state.timeline.filter((existing) => existing.id !== entry.id)]
+      })),
     removeDocument: (documentId) =>
       set((state) => ({
         documents: state.documents.filter((doc) => doc.id !== documentId)
@@ -84,6 +90,10 @@ export const createAppStore = (initialState?: Partial<AppState>) =>
     removeTransfer: (transferId) =>
       set((state) => ({
         transfers: state.transfers.filter((transfer) => transfer.id !== transferId)
+      })),
+    removeTimelineEntry: (entryId) =>
+      set((state) => ({
+        timeline: state.timeline.filter((entry) => entry.id !== entryId)
       })),
     setAccounts: (accounts) => set(() => ({ accounts })),
     setExpenses: (expenses) => set(() => ({ expenses })),
