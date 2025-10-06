@@ -143,8 +143,9 @@ export function deriveExpenseFromDocument(
     id: existingExpense?.id ?? `doc-exp-${metadata.id}`,
     documentId: metadata.id,
     accountId: resolvedAccountId,
-    description: existingExpense?.description ?? humaniseDocumentName(metadata.originalName),
-    category: existingExpense?.category ?? 'Outros',
+    description:
+      existingExpense?.description ?? metadata.companyName ?? humaniseDocumentName(metadata.originalName),
+    category: existingExpense?.category ?? metadata.expenseType ?? 'Outros',
     amount: resolvedAmount,
     currency: metadata.currency ?? existingExpense?.currency ?? 'EUR',
     dueDate: resolvedDueDate,
