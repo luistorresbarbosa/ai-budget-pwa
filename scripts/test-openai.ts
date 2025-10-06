@@ -62,6 +62,8 @@ async function runValidation(options: CliOptions) {
       if (expires) {
         console.log(`  Créditos expiram a ${expires}.`);
       }
+    } else if (result.balanceError) {
+      console.log(`  Nota: ${result.balanceError}`);
     }
   } else {
     console.log('⚠︎ A API respondeu mas a validação falhou:');

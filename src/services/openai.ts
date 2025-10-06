@@ -46,6 +46,7 @@ export interface OpenAIValidationResult {
   model: string;
   latencyMs?: number;
   balance?: OpenAIBalanceInfo;
+  balanceError?: string;
 }
 
 export interface OpenAIModelSummary {
@@ -60,6 +61,16 @@ export interface OpenAIBalanceInfo {
   totalAvailable: number;
   expiresAt?: number | null;
   currency?: string;
+}
+
+export class OpenAIBalanceUnavailableError extends Error {
+  public readonly reason: 'session_key_required' | 'forbidden' | 'unknown';
+
+  constructor(message: string, reason: 'session_key_required' | 'forbidden' | 'unknown' = 'unknown') {
+    super(message);
+    this.name = 'OpenAIBalanceUnavailableError';
+    this.reason = reason;
+  }
 }
 
 export interface OpenAIDocumentExtraction {
@@ -268,6 +279,27 @@ export async function fetchOpenAIBalance(
 
   if (!response.ok) {
     const message = await parseOpenAIError(response);
+    const normalised = message.toLowerCase();
+
+    const requiresSessionKey = normalised.includes('session key');
+    if (requiresSessionKey) {
+      const humanMessage =
+        'A OpenAI requer uma sessão autenticada no dashboard para consultar o saldo. Verifique o saldo diretamente na consola da OpenAI.';
+      logOpenAIEvent('Saldo indisponível via API: sessão do dashboard requerida.', {
+        details: message
+      });
+      throw new OpenAIBalanceUnavailableError(humanMessage, 'session_key_required');
+    }
+
+    if (response.status === 401 || response.status === 403) {
+      const humanMessage =
+        'Não foi possível consultar o saldo com a chave API fornecida. Confirme os acessos de faturação na conta da OpenAI.';
+      logOpenAIEvent('Saldo indisponível via API: acesso negado.', {
+        details: message
+      });
+      throw new OpenAIBalanceUnavailableError(humanMessage, 'forbidden');
+    }
+
     logOpenAIEvent('Erro ao obter saldo disponível da OpenAI.', {
       details: message
     });
@@ -489,12 +521,23 @@ export async function validateOpenAIConnection(
   const parsed = extractJsonFromResponsePayload(payload) as { reply?: string } | undefined;
   if (parsed && parsed.reply === 'pong') {
     let balance: OpenAIBalanceInfo | undefined;
+    let balanceError: string | undefined;
     try {
       balance = await fetchOpenAIBalance(config, signal);
     } catch (error) {
-      logOpenAIEvent('Aviso: não foi possível obter saldo disponível após validar a ligação.', {
-        details: error instanceof Error ? error.message : String(error)
-      });
+      if (error instanceof OpenAIBalanceUnavailableError) {
+        balanceError = error.message;
+        logOpenAIEvent('Aviso: saldo indisponível após validar a ligação.', {
+          details: {
+            message: error.message,
+            reason: error.reason
+          }
+        });
+      } else {
+        logOpenAIEvent('Aviso: não foi possível obter saldo disponível após validar a ligação.', {
+          details: error instanceof Error ? error.message : String(error)
+        });
+      }
     }
 
     return {
@@ -502,7 +545,8 @@ export async function validateOpenAIConnection(
       message: 'Ligação validada com sucesso.',
       model,
       latencyMs,
-      balance
+      balance,
+      balanceError
     };
   }
 
