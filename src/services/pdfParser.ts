@@ -5,7 +5,6 @@ import {
   type OpenAIDocumentExtraction,
   type OpenAIConnectionConfig
 } from './openai';
-import { extractMetadataLocally } from './pdfLocalExtractor';
 
 export interface PdfExtractionRequest {
   file: File;
@@ -50,12 +49,9 @@ async function extractWithOpenAI(request: PdfExtractionRequest): Promise<PdfExtr
 }
 
 export async function extractPdfMetadata(request: PdfExtractionRequest): Promise<PdfExtractionResult> {
-  if (hasValidOpenAIConfig(request.openAI)) {
-    try {
-      return await extractWithOpenAI(request);
-    } catch (error) {
-      console.error('Falha ao extrair dados com a OpenAI, a recorrer à extração local.', error);
-    }
+  if (!hasValidOpenAIConfig(request.openAI)) {
+    throw new Error('É necessário configurar a API da OpenAI para ler PDFs.');
   }
-  return await extractMetadataLocally(request.file, { accountContext: request.accountContext });
+
+  return await extractWithOpenAI(request);
 }

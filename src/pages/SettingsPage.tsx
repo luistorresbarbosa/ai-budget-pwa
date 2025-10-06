@@ -31,7 +31,9 @@ function SettingsPage() {
     event.preventDefault();
     try {
       const normalizedConfig = firebaseConfig.trim();
-      const parsed = normalizedConfig ? JSON.parse(normalizedConfig) : undefined;
+      const parsed = normalizedConfig
+        ? (JSON.parse(normalizedConfig) as Record<string, unknown>)
+        : undefined;
       if (parsed && looksLikeServiceAccountConfig(parsed)) {
         setFeedback(
           'O JSON fornecido parece ser uma credencial de Service Account. Obtenha a configuração Web do Firebase (apiKey, authDomain, projectId, …) na consola do Firebase.'
@@ -42,9 +44,12 @@ function SettingsPage() {
         setFeedback('Configuração Firebase incompleta.');
         return;
       }
+      let firebaseSettings: typeof settings.firebaseConfig;
       if (parsed && validateFirebaseConfig(parsed)) {
-        await initializeFirebase(parsed);
+        firebaseSettings = parsed;
+        await initializeFirebase(firebaseSettings);
       } else {
+        firebaseSettings = undefined;
         await resetFirebase();
       }
       const normalizedBaseUrl = openAIBaseUrl.trim();
@@ -56,13 +61,13 @@ function SettingsPage() {
           normalizedBaseUrl && normalizedBaseUrl !== DEFAULT_OPENAI_BASE_URL ? normalizedBaseUrl : undefined,
         openAIModel: normalizedModel && normalizedModel !== DEFAULT_OPENAI_MODEL ? normalizedModel : undefined,
         autoDetectFixedExpenses: autoDetect,
-        firebaseConfig: parsed
+        firebaseConfig: firebaseSettings
       });
       setOpenAIBaseUrl(normalizedBaseUrl || DEFAULT_OPENAI_BASE_URL);
       setOpenAIModel(normalizedModel || DEFAULT_OPENAI_MODEL);
-      setFirebaseConfig(parsed ? JSON.stringify(parsed, null, 2) : '');
+      setFirebaseConfig(firebaseSettings ? JSON.stringify(firebaseSettings, null, 2) : '');
       setFeedback(
-        parsed
+        firebaseSettings
           ? 'Definições guardadas e ligação ao Firebase estabelecida.'
           : 'Definições guardadas. Configuração Firebase removida.'
       );

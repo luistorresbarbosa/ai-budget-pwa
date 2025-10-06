@@ -1,3 +1,5 @@
+import type { FirebaseConfig } from '../services/firebase';
+
 export type AccountType = 'corrente' | 'poupanca' | 'cartao' | 'outro';
 
 export interface Account {
@@ -60,6 +62,6 @@ export interface AppSettings {
   openAIApiKey?: string;
   openAIBaseUrl?: string;
   openAIModel?: string;
-  firebaseConfig?: Record<string, string>;
+  firebaseConfig?: FirebaseConfig;
   autoDetectFixedExpenses: boolean;
 }

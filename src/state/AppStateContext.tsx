@@ -15,13 +15,6 @@ import type {
   TimelineEntry,
   Transfer
 } from '../data/models';
-import {
-  mockAccounts,
-  mockDocuments,
-  mockExpenses,
-  mockTimeline,
-  mockTransfers
-} from '../data/mockData';
 import { loadPersistedSettings, persistSettings } from './settingsPersistence';
 
 export interface AppState {
@@ -34,6 +27,9 @@ export interface AppState {
   addDocument: (doc: DocumentMetadata) => void;
   addExpense: (expense: Expense) => void;
   addTransfer: (transfer: Transfer) => void;
+  removeDocument: (documentId: string) => void;
+  removeExpense: (expenseId: string) => void;
+  removeTransfer: (transferId: string) => void;
   setAccounts: (accounts: Account[]) => void;
   setExpenses: (expenses: Expense[]) => void;
   setTransfers: (transfers: Transfer[]) => void;
@@ -57,11 +53,11 @@ function resolveInitialSettings(initialState?: Partial<AppState>): AppSettings {
 
 export const createAppStore = (initialState?: Partial<AppState>) =>
   createStore<AppState>((set) => ({
-    accounts: initialState?.accounts ?? mockAccounts,
-    expenses: initialState?.expenses ?? mockExpenses,
-    transfers: initialState?.transfers ?? mockTransfers,
-    documents: initialState?.documents ?? mockDocuments,
-    timeline: initialState?.timeline ?? mockTimeline,
+    accounts: initialState?.accounts ?? [],
+    expenses: initialState?.expenses ?? [],
+    transfers: initialState?.transfers ?? [],
+    documents: initialState?.documents ?? [],
+    timeline: initialState?.timeline ?? [],
     settings: resolveInitialSettings(initialState),
     addDocument: (doc) =>
       set((state) => ({
@@ -74,6 +70,18 @@ export const createAppStore = (initialState?: Partial<AppState>) =>
     addTransfer: (transfer) =>
       set((state) => ({
         transfers: [transfer, ...state.transfers]
+      })),
+    removeDocument: (documentId) =>
+      set((state) => ({
+        documents: state.documents.filter((doc) => doc.id !== documentId)
+      })),
+    removeExpense: (expenseId) =>
+      set((state) => ({
+        expenses: state.expenses.filter((expense) => expense.id !== expenseId)
+      })),
+    removeTransfer: (transferId) =>
+      set((state) => ({
+        transfers: state.transfers.filter((transfer) => transfer.id !== transferId)
       })),
     setAccounts: (accounts) => set(() => ({ accounts })),
     setExpenses: (expenses) => set(() => ({ expenses })),
