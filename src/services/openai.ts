@@ -589,6 +589,7 @@ export async function extractPdfMetadataWithOpenAI({
                 text:
                   'Analisa o PDF fornecido e devolve um JSON com os campos "sourceType", "amount", "currency", "dueDate", "accountHint", "companyName", "expenseType" e "notes". ' +
                   'sourceType deve ser um de: fatura, recibo ou extracto. amount deve ser número. dueDate deve estar em ISO 8601 se existir. ' +
+                  'Para identificar o accountHint, procura explicitamente por campos etiquetados como "IBAN" e devolve esse valor quando estiver presente. ' +
                   (accountContext
                     ? `A conta de contexto preferencial é "${accountContext}". Considera-a ao interpretar o documento. `
                     : '') +
