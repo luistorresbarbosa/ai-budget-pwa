@@ -21,7 +21,7 @@ import {
   logOpenAIEvent,
   subscribeToIntegrationLogs
 } from '../services/integrationLogger';
-import type { IntegrationLogsState } from '../types/integrationLogs';
+import type { IntegrationLogEntry, IntegrationLogSource, IntegrationLogsState } from '../types/integrationLogs';
 import {
   DEFAULT_INTEGRATION_LOGS_PAGE_SIZE,
   MAX_INTEGRATION_LOGS
@@ -103,8 +103,7 @@ function SettingsPage() {
   const [logsPerPage, setLogsPerPage] = useState(() =>
     normaliseLogsPerPage(settings.integrationLogsPageSize)
   );
-  const [openAILogsPage, setOpenAILogsPage] = useState(1);
-  const [firebaseLogsPage, setFirebaseLogsPage] = useState(1);
+  const [logsPage, setLogsPage] = useState(1);
   const openAILogs = logsState.openai;
   const firebaseLogs = logsState.firebase;
   const settingsFirebaseConfig = settings.firebaseConfig;
@@ -141,95 +140,55 @@ function SettingsPage() {
 
   const logsPerPageSelectId = 'integration-logs-page-size';
 
-  const sortedOpenAILogs = useMemo(() => openAILogs.slice().reverse(), [openAILogs]);
-  const sortedFirebaseLogs = useMemo(() => firebaseLogs.slice().reverse(), [firebaseLogs]);
+  const combinedLogs = useMemo(() => {
+    const allEntries: Array<{ source: IntegrationLogSource; entry: IntegrationLogEntry }> = [];
+    for (const entry of openAILogs) {
+      allEntries.push({ source: 'openai', entry });
+    }
+    for (const entry of firebaseLogs) {
+      allEntries.push({ source: 'firebase', entry });
+    }
+    return allEntries.sort((a, b) => b.entry.timestamp - a.entry.timestamp);
+  }, [firebaseLogs, openAILogs]);
 
-  const openAIPagination = useMemo(
-    () => paginateLogs(sortedOpenAILogs, logsPerPage, openAILogsPage),
-    [logsPerPage, openAILogsPage, sortedOpenAILogs]
+  const combinedPagination = useMemo(
+    () => paginateLogs(combinedLogs, logsPerPage, logsPage),
+    [combinedLogs, logsPage, logsPerPage]
   );
 
-  const firebasePagination = useMemo(
-    () => paginateLogs(sortedFirebaseLogs, logsPerPage, firebaseLogsPage),
-    [firebaseLogsPage, logsPerPage, sortedFirebaseLogs]
-  );
-
   useEffect(() => {
-    if (openAILogsPage !== openAIPagination.page) {
-      setOpenAILogsPage(openAIPagination.page);
+    if (logsPage !== combinedPagination.page) {
+      setLogsPage(combinedPagination.page);
     }
-  }, [openAILogsPage, openAIPagination.page]);
+  }, [combinedPagination.page, logsPage]);
 
   useEffect(() => {
-    if (firebaseLogsPage !== firebasePagination.page) {
-      setFirebaseLogsPage(firebasePagination.page);
-    }
-  }, [firebaseLogsPage, firebasePagination.page]);
-
-  useEffect(() => {
-    setOpenAILogsPage(1);
-    setFirebaseLogsPage(1);
+    setLogsPage(1);
   }, [logsPerPage]);
 
   const {
-    items: paginatedOpenAILogs,
-    totalItems: openAILogsTotal,
-    totalPages: openAILogsTotalPages,
-    page: openAILogsCurrentPage,
-    rangeStart: openAILogsRangeStart,
-    rangeEnd: openAILogsRangeEnd,
-    hasMultiplePages: shouldShowOpenAILogsPagination
-  } = openAIPagination;
+    items: paginatedLogs,
+    totalItems: totalLogs,
+    totalPages: totalLogsPages,
+    page: currentLogsPage,
+    rangeStart: logsRangeStart,
+    rangeEnd: logsRangeEnd,
+    hasMultiplePages: shouldShowLogsPagination
+  } = combinedPagination;
 
-  const {
-    items: paginatedFirebaseLogs,
-    totalItems: firebaseLogsTotal,
-    totalPages: firebaseLogsTotalPages,
-    page: firebaseLogsCurrentPage,
-    rangeStart: firebaseLogsRangeStart,
-    rangeEnd: firebaseLogsRangeEnd,
-    hasMultiplePages: shouldShowFirebaseLogsPagination
-  } = firebasePagination;
-
-  const handleOpenAIPreviousPage = useCallback(() => {
-    setOpenAILogsPage((current) => {
-      const clampedCurrent = Math.min(
-        Math.max(current, 1),
-        openAILogsTotalPages
-      );
+  const handleLogsPreviousPage = useCallback(() => {
+    setLogsPage((current) => {
+      const clampedCurrent = Math.min(Math.max(current, 1), totalLogsPages);
       return Math.max(1, clampedCurrent - 1);
     });
-  }, [openAILogsTotalPages]);
+  }, [totalLogsPages]);
 
-  const handleOpenAINextPage = useCallback(() => {
-    setOpenAILogsPage((current) => {
-      const clampedCurrent = Math.min(
-        Math.max(current, 1),
-        openAILogsTotalPages
-      );
-      return Math.min(openAILogsTotalPages, clampedCurrent + 1);
+  const handleLogsNextPage = useCallback(() => {
+    setLogsPage((current) => {
+      const clampedCurrent = Math.min(Math.max(current, 1), totalLogsPages);
+      return Math.min(totalLogsPages, clampedCurrent + 1);
     });
-  }, [openAILogsTotalPages]);
-
-  const handleFirebasePreviousPage = useCallback(() => {
-    setFirebaseLogsPage((current) => {
-      const clampedCurrent = Math.min(
-        Math.max(current, 1),
-        firebaseLogsTotalPages
-      );
-      return Math.max(1, clampedCurrent - 1);
-    });
-  }, [firebaseLogsTotalPages]);
-
-  const handleFirebaseNextPage = useCallback(() => {
-    setFirebaseLogsPage((current) => {
-      const clampedCurrent = Math.min(
-        Math.max(current, 1),
-        firebaseLogsTotalPages
-      );
-      return Math.min(firebaseLogsTotalPages, clampedCurrent + 1);
-    });
-  }, [firebaseLogsTotalPages]);
+  }, [totalLogsPages]);
 
   const loadOpenAIModels = useCallback(
     async (abortSignal?: AbortSignal) => {
@@ -362,8 +321,7 @@ function SettingsPage() {
         Number.isFinite(parsedValue) ? parsedValue : logsPerPage
       );
       setLogsPerPage(nextValue);
-      setOpenAILogsPage(1);
-      setFirebaseLogsPage(1);
+      setLogsPage(1);
       updateSettings({ integrationLogsPageSize: nextValue });
     },
     [logsPerPage, updateSettings]
@@ -411,31 +369,45 @@ function SettingsPage() {
     []
   );
 
+  const integrationLabels: Record<IntegrationLogSource, string> = useMemo(
+    () => ({
+      openai: 'OpenAI',
+      firebase: 'Firebase'
+    }),
+    []
+  );
+
+  const integrationBadgeStyles: Record<IntegrationLogSource, string> = useMemo(
+    () => ({
+      openai: 'bg-sky-50 text-sky-700 border-sky-200',
+      firebase: 'bg-emerald-50 text-emerald-700 border-emerald-200'
+    }),
+    []
+  );
+
   const handleExportLogs = useCallback(() => {
     if (typeof window === 'undefined' || typeof document === 'undefined') {
       return;
     }
 
     const exportLines: string[] = [];
-    const formatEntry = (entry: { timestamp: number; message: string }) => {
+    const formatEntry = (source: IntegrationLogSource, entry: IntegrationLogEntry) => {
       const timestamp = new Date(entry.timestamp).toISOString();
-      return `[${timestamp}] ${entry.message}`;
+      return `[${timestamp}] [${integrationLabels[source]}] ${entry.message}`;
     };
 
     exportLines.push('# Logs de integrações');
     exportLines.push('');
-    exportLines.push('## OpenAI');
-    if (openAILogs.length === 0) {
-      exportLines.push('Sem eventos registados.');
-    } else {
-      exportLines.push(...openAILogs.map((entry) => formatEntry(entry)));
-    }
+    exportLines.push(
+      `Total de eventos: ${totalLogs} (OpenAI: ${openAILogs.length}, Firebase: ${firebaseLogs.length})`
+    );
     exportLines.push('');
-    exportLines.push('## Firebase');
-    if (firebaseLogs.length === 0) {
+    if (combinedLogs.length === 0) {
       exportLines.push('Sem eventos registados.');
     } else {
-      exportLines.push(...firebaseLogs.map((entry) => formatEntry(entry)));
+      for (const item of combinedLogs.slice().reverse()) {
+        exportLines.push(formatEntry(item.source, item.entry));
+      }
     }
 
     const blob = new Blob([exportLines.join('\n')], {
@@ -450,7 +422,7 @@ function SettingsPage() {
     link.click();
     document.body.removeChild(link);
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }, [firebaseLogs, openAILogs]);
+  }, [combinedLogs, firebaseLogs.length, integrationLabels, openAILogs.length, totalLogs]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -659,339 +631,75 @@ function SettingsPage() {
         transition={{ delay: 0.1, duration: 0.35, ease: 'easeOut' }}
         className="space-y-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
       >
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">OpenAI</p>
-            <label className="block space-y-2 text-sm text-slate-600">
-              <span className="text-xs uppercase tracking-wide text-slate-400">Chave API OpenAI</span>
-              <input
-                type="password"
-                placeholder="sk-..."
-                value={apiKey}
-                onChange={(event) => setApiKey(event.target.value)}
-                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-900 focus:ring-slate-900/10"
-              />
-            </label>
-            <label className="block space-y-2 text-sm text-slate-600">
-              <span className="text-xs uppercase tracking-wide text-slate-400">Endpoint (opcional)</span>
-              <input
-                type="url"
-                placeholder={DEFAULT_OPENAI_BASE_URL}
-                value={openAIBaseUrl}
-                onChange={(event) => setOpenAIBaseUrl(event.target.value)}
-                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-900 focus:ring-slate-900/10"
-              />
-            </label>
-            <label className="block space-y-2 text-sm text-slate-600">
-              <span className="text-xs uppercase tracking-wide text-slate-400">Modelo</span>
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <select
-                  value={openAIModel}
-                  onChange={(event) => setOpenAIModel(event.target.value)}
-                  disabled={isLoadingOpenAIModels || (!hasOpenAIApiKey && availableOpenAIModels.length === 0)}
-                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10 disabled:cursor-not-allowed disabled:bg-slate-100"
-                >
-                  {openAIModelOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  onClick={handleRefreshOpenAIModels}
-                  disabled={!hasOpenAIApiKey || isLoadingOpenAIModels}
-                  className="inline-flex items-center justify-center rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600 shadow-sm transition hover:border-slate-400 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900"
-                >
-                  {isLoadingOpenAIModels ? 'A carregar…' : 'Atualizar'}
-                </button>
-              </div>
-              {!hasOpenAIApiKey && (
-                <p className="text-xs text-slate-400">
-                  Insira a chave da OpenAI para carregar modelos disponíveis automaticamente.
-                </p>
-              )}
-              {openAIModelsError && (
-                <p className="text-xs text-amber-600">{openAIModelsError}</p>
-              )}
-            </label>
-            <button
-              type="button"
-              onClick={handleTestOpenAI}
-              disabled={isTestingOpenAI}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:border-slate-400 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900 md:w-auto"
-            >
-              {isTestingOpenAI ? 'A validar…' : 'Testar ligação OpenAI'}
-            </button>
-            <AnimatePresence>
-              {openAITestFeedback && (
-                <motion.p
-                  key={openAITestFeedback}
-                  initial={{ opacity: 0, y: -6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -6 }}
-                  transition={{ duration: 0.25 }}
-                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600 shadow-sm"
-                >
-                  {openAITestFeedback}
-                </motion.p>
-              )}
-            </AnimatePresence>
-            <AnimatePresence>
-              {formattedOpenAIBalance && (
-                <motion.div
-                  key={`openai-balance-${formattedOpenAIBalance.available}-${formattedOpenAIBalance.used}`}
-                  initial={{ opacity: 0, y: -6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -6 }}
-                  transition={{ duration: 0.25 }}
-                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600 shadow-sm"
-                >
-                  <p>
-                    Saldo disponível: <span className="font-semibold text-slate-700">{formattedOpenAIBalance.available}</span>
-                  </p>
-                  <p className="mt-1 text-[10px] uppercase tracking-wide text-slate-400">
-                    Limite: {formattedOpenAIBalance.granted} • Utilizado: {formattedOpenAIBalance.used}
-                    {formattedOpenAIBalance.expiry
-                      ? ` • Expira a ${formattedOpenAIBalance.expiry}`
-                      : ''}
-                  </p>
-                </motion.div>
-              )}
-            </AnimatePresence>
-            <AnimatePresence>
-              {openAIBalanceError && (
-                <motion.p
-                  key={openAIBalanceError}
-                  initial={{ opacity: 0, y: -6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -6 }}
-                  transition={{ duration: 0.25 }}
-                  className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-700 shadow-sm"
-                >
-                  {openAIBalanceError}
-                </motion.p>
-              )}
-            </AnimatePresence>
+        <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Eventos registados</p>
+              <span className="text-[10px] uppercase tracking-wide text-slate-400">
+                Total de {totalLogs} eventos (OpenAI: {openAILogs.length} · Firebase: {firebaseLogs.length})
+              </span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-wide">
+              <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 ${integrationBadgeStyles.openai}`}>
+                <span className="h-1.5 w-1.5 rounded-full bg-current" /> OpenAI
+              </span>
+              <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 ${integrationBadgeStyles.firebase}`}>
+                <span className="h-1.5 w-1.5 rounded-full bg-current" /> Firebase
+              </span>
+            </div>
           </div>
-          <div className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Preferências</p>
-            <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 shadow-sm">
-              <input
-                type="checkbox"
-                checked={autoDetect}
-                onChange={(event) => setAutoDetect(event.target.checked)}
-                className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900/30"
-              />
-              Detectar automaticamente despesas fixas
-            </label>
-          </div>
-        </div>
-        <label className="block space-y-2 text-sm text-slate-600">
-          <span className="text-xs uppercase tracking-wide text-slate-400">Configuração Firebase (JSON)</span>
-          <textarea
-            rows={6}
-            value={firebaseConfig}
-            onChange={(event) => setFirebaseConfig(event.target.value)}
-            className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-900 focus:ring-slate-900/10"
-          />
-        </label>
-        <div className="space-y-3">
-          <button
-            type="button"
-            onClick={handleTestFirebase}
-            disabled={isTestingFirebase}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:border-slate-400 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900 sm:w-auto"
-          >
-            {isTestingFirebase ? 'A validar…' : 'Testar ligação Firebase'}
-          </button>
-          <AnimatePresence>
-            {firebaseTestFeedback && (
-              <motion.p
-                key={firebaseTestFeedback}
-                initial={{ opacity: 0, y: -6 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -6 }}
-                transition={{ duration: 0.25 }}
-                className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600 shadow-sm"
-              >
-                {firebaseTestFeedback}
-              </motion.p>
+          <ul className="space-y-2 text-sm text-slate-600">
+            {paginatedLogs.length === 0 ? (
+              <li className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-400 shadow-sm">
+                Sem eventos registados.
+              </li>
+            ) : (
+              paginatedLogs.map((item) => (
+                <li
+                  key={`${item.source}-${item.entry.timestamp}-${item.entry.message}`}
+                  className="space-y-1 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-500 shadow-sm"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 ${integrationBadgeStyles[item.source]}`}>
+                      <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                      {integrationLabels[item.source]}
+                    </span>
+                    <span className="font-mono text-[10px] uppercase tracking-wide text-slate-400">
+                      {formatLogTimestamp.format(item.entry.timestamp)}
+                    </span>
+                  </div>
+                  <p className="whitespace-pre-line text-[11px] leading-relaxed text-slate-600">{item.entry.message}</p>
+                </li>
+              ))
             )}
-          </AnimatePresence>
-        </div>
-        <button
-          type="submit"
-          className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900 sm:w-auto sm:px-6"
-        >
-          Guardar
-        </button>
-        <AnimatePresence>
-          {feedback && (
-            <motion.p
-              key={feedback}
-              initial={{ opacity: 0, y: -8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.25 }}
-              className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 shadow-sm"
-            >
-              {feedback}
-            </motion.p>
+          </ul>
+          {totalLogs > 0 && (
+            <div className="flex flex-col gap-2 pt-1 text-[10px] uppercase tracking-wide text-slate-400 sm:flex-row sm:items-center sm:justify-between">
+              <span>
+                Mostrando {logsRangeStart}–{logsRangeEnd} de {totalLogs} (página {currentLogsPage} de {totalLogsPages})
+              </span>
+              {shouldShowLogsPagination && (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleLogsPreviousPage}
+                    disabled={currentLogsPage === 1}
+                    className="inline-flex items-center justify-center rounded-full border border-slate-300 bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 shadow-sm transition hover:border-slate-400 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Anterior
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleLogsNextPage}
+                    disabled={currentLogsPage === totalLogsPages}
+                    className="inline-flex items-center justify-center rounded-full border border-slate-300 bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 shadow-sm transition hover:border-slate-400 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Seguinte
+                  </button>
+                </div>
+              )}
+            </div>
           )}
-        </AnimatePresence>
-      </motion.form>
-      <motion.section
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.15, duration: 0.35, ease: 'easeOut' }}
-        className="space-y-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
-      >
-        <header className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="space-y-1">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Logs de ligação</p>
-            <h2 className="text-lg font-semibold text-slate-900">Estado das integrações</h2>
-            <p className="text-sm text-slate-500">Acompanhe o histórico recente de eventos das integrações com a OpenAI e o Firebase.</p>
-          </div>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end sm:gap-4">
-            <label
-              htmlFor={logsPerPageSelectId}
-              className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500 sm:flex-row sm:items-center sm:gap-3"
-            >
-              <span>Resultados por página</span>
-              <select
-                id={logsPerPageSelectId}
-                value={logsPerPage}
-                onChange={handleLogsPerPageChange}
-                className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-sm transition hover:border-slate-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900"
-              >
-                {logsPerPageOptions.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button
-              type="button"
-              onClick={handleExportLogs}
-              className="inline-flex items-center justify-center rounded-2xl border border-slate-300 bg-white px-4 py-2 text-xs font-medium uppercase tracking-wide text-slate-600 shadow-sm transition hover:border-slate-400 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900"
-            >
-              Exportar logs (.txt)
-            </button>
-          </div>
-        </header>
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 shadow-sm">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">OpenAI</p>
-              <span className="text-[10px] uppercase tracking-wide text-slate-400">
-                {openAILogsTotal === 0 ? 'Sem eventos registados' : `Total de ${openAILogsTotal} eventos`}
-              </span>
-            </div>
-            <ul className="space-y-2 text-sm text-slate-600">
-              {openAILogsTotal === 0 ? (
-                <li className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-400 shadow-sm">
-                  Sem eventos registados.
-                </li>
-              ) : (
-                paginatedOpenAILogs.map((entry) => (
-                  <li
-                    key={`${entry.timestamp}-${entry.message}`}
-                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-500 shadow-sm"
-                  >
-                    <span className="font-mono text-[10px] uppercase tracking-wide text-slate-400">
-                      {formatLogTimestamp.format(entry.timestamp)}
-                    </span>
-                    <br />
-                    {entry.message}
-                  </li>
-                ))
-              )}
-            </ul>
-            {openAILogsTotal > 0 && (
-              <div className="flex flex-col gap-2 pt-1 text-[10px] uppercase tracking-wide text-slate-400 sm:flex-row sm:items-center sm:justify-between">
-                <span>
-                  Mostrando {openAILogsRangeStart}–{openAILogsRangeEnd} de {openAILogsTotal} (página {openAILogsCurrentPage} de {openAILogsTotalPages})
-                </span>
-                {shouldShowOpenAILogsPagination && (
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={handleOpenAIPreviousPage}
-                      disabled={openAILogsCurrentPage === 1}
-                      className="inline-flex items-center justify-center rounded-full border border-slate-300 bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 shadow-sm transition hover:border-slate-400 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      Anterior
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleOpenAINextPage}
-                      disabled={openAILogsCurrentPage === openAILogsTotalPages}
-                      className="inline-flex items-center justify-center rounded-full border border-slate-300 bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 shadow-sm transition hover:border-slate-400 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      Seguinte
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-          <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 shadow-sm">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Firebase</p>
-              <span className="text-[10px] uppercase tracking-wide text-slate-400">
-                {firebaseLogsTotal === 0 ? 'Sem eventos registados' : `Total de ${firebaseLogsTotal} eventos`}
-              </span>
-            </div>
-            <ul className="space-y-2 text-sm text-slate-600">
-              {firebaseLogsTotal === 0 ? (
-                <li className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-400 shadow-sm">
-                  Sem eventos registados.
-                </li>
-              ) : (
-                paginatedFirebaseLogs.map((entry) => (
-                  <li
-                    key={`${entry.timestamp}-${entry.message}`}
-                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-500 shadow-sm"
-                  >
-                    <span className="font-mono text-[10px] uppercase tracking-wide text-slate-400">
-                      {formatLogTimestamp.format(entry.timestamp)}
-                    </span>
-                    <br />
-                    {entry.message}
-                  </li>
-                ))
-              )}
-            </ul>
-            {firebaseLogsTotal > 0 && (
-              <div className="flex flex-col gap-2 pt-1 text-[10px] uppercase tracking-wide text-slate-400 sm:flex-row sm:items-center sm:justify-between">
-                <span>
-                  Mostrando {firebaseLogsRangeStart}–{firebaseLogsRangeEnd} de {firebaseLogsTotal} (página {firebaseLogsCurrentPage} de {firebaseLogsTotalPages})
-                </span>
-                {shouldShowFirebaseLogsPagination && (
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={handleFirebasePreviousPage}
-                      disabled={firebaseLogsCurrentPage === 1}
-                      className="inline-flex items-center justify-center rounded-full border border-slate-300 bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 shadow-sm transition hover:border-slate-400 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      Anterior
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleFirebaseNextPage}
-                      disabled={firebaseLogsCurrentPage === firebaseLogsTotalPages}
-                      className="inline-flex items-center justify-center rounded-full border border-slate-300 bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 shadow-sm transition hover:border-slate-400 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      Seguinte
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
         </div>
       </motion.section>
     </motion.section>

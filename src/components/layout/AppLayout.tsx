@@ -8,11 +8,13 @@ import {
   RefreshCcw,
   Settings,
   UploadCloud,
-  Wallet2
+  Wallet2,
+  PiggyBank
 } from 'lucide-react';
 
 const links: Array<{ to: string; label: string; icon: LucideIcon }> = [
   { to: '/upload', label: 'Upload PDFs', icon: UploadCloud },
+  { to: '/accounts', label: 'Contas', icon: PiggyBank },
   { to: '/transfers', label: 'Transferências', icon: RefreshCcw },
   { to: '/timeline', label: 'Timeline', icon: CalendarDays },
   { to: '/expenses', label: 'Despesas', icon: Wallet2 },
