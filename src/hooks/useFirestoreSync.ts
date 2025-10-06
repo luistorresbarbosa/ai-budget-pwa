@@ -24,6 +24,11 @@ export function useFirestoreSync() {
   useEffect(() => {
     const config = settings.firebaseConfig;
     if (!config) {
+      setAccounts([]);
+      setExpenses([]);
+      setTransfers([]);
+      setDocuments([]);
+      setTimeline([]);
       return () => {
         // nothing to cleanup
       };

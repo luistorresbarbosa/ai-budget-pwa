@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { CalendarDays, Euro, FileText, Loader2, UploadCloud } from 'lucide-react';
+import { CalendarDays, Euro, FileText, Loader2, Trash2, UploadCloud } from 'lucide-react';
 import { useAppState } from '../state/AppStateContext';
 import type { DocumentMetadata } from '../data/models';
-import { extractPdfMetadata } from '../services/pdfParser';
+import { extractPdfMetadata, isPdfFile } from '../services/pdfParser';
+import { persistDocumentMetadata, removeDocumentMetadata } from '../services/documents';
+import { validateFirebaseConfig } from '../services/firebase';
 
 interface UploadFeedback {
   type: 'success' | 'error' | 'info';
@@ -19,25 +21,44 @@ const feedbackStyles: Record<UploadFeedback['type'], string> = {
 function UploadPage() {
   const documents = useAppState((state) => state.documents);
   const addDocument = useAppState((state) => state.addDocument);
+  const removeDocument = useAppState((state) => state.removeDocument);
   const settings = useAppState((state) => state.settings);
   const [isUploading, setIsUploading] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<UploadFeedback | null>(null);
 
   async function handleUpload(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    if (file.type !== 'application/pdf') {
+    if (!isPdfFile(file)) {
       setFeedback({ type: 'error', message: 'Por favor escolha um ficheiro PDF.' });
+      event.target.value = '';
+      return;
+    }
+
+    if (!settings.openAIApiKey) {
+      setFeedback({
+        type: 'error',
+        message: 'Configure a chave da OpenAI nas definições antes de carregar PDFs.'
+      });
+      event.target.value = '';
+      return;
+    }
+
+    if (!settings.firebaseConfig || !validateFirebaseConfig(settings.firebaseConfig)) {
+      setFeedback({
+        type: 'error',
+        message: 'Configure o Firebase nas definições antes de carregar PDFs.'
+      });
+      event.target.value = '';
       return;
     }
 
     setIsUploading(true);
     setFeedback({
       type: 'info',
-      message: settings.openAIApiKey
-        ? 'A extrair informação via OpenAI…'
-        : 'A extrair informação localmente no browser (adicione a chave OpenAI nas definições para OCR avançado).'
+      message: 'A extrair informação via OpenAI…'
     });
 
     try {
@@ -64,17 +85,44 @@ function UploadPage() {
         extractedAt: new Date().toISOString()
       };
 
+      await persistDocumentMetadata(metadata, settings.firebaseConfig);
       addDocument(metadata);
-      setFeedback({ type: 'success', message: 'Documento processado e adicionado à lista.' });
+      setFeedback({ type: 'success', message: 'Documento processado e guardado no Firebase.' });
     } catch (error) {
       console.error(error);
       setFeedback({
         type: 'error',
-        message: 'Não foi possível extrair dados do PDF. Tente novamente.'
+        message:
+          error instanceof Error ? error.message : 'Não foi possível extrair dados do PDF. Tente novamente.'
       });
     } finally {
       setIsUploading(false);
       event.target.value = '';
+    }
+  }
+
+  async function handleDelete(documentId: string) {
+    if (!settings.firebaseConfig || !validateFirebaseConfig(settings.firebaseConfig)) {
+      setFeedback({
+        type: 'error',
+        message: 'Configure o Firebase nas definições antes de remover documentos.'
+      });
+      return;
+    }
+
+    setDeletingId(documentId);
+    try {
+      await removeDocumentMetadata(documentId, settings.firebaseConfig);
+      removeDocument(documentId);
+      setFeedback({ type: 'success', message: 'Documento removido.' });
+    } catch (error) {
+      console.error(error);
+      setFeedback({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Não foi possível remover o documento.'
+      });
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -150,7 +198,7 @@ function UploadPage() {
                     {new Date(doc.uploadDate).toLocaleString('pt-PT')} · {doc.sourceType}
                   </small>
                 </div>
-                <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-slate-600">
+                <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
                   {doc.amount && (
                     <span className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
                       <Euro className="h-4 w-4 text-slate-400" />
@@ -163,6 +211,15 @@ function UploadPage() {
                       Vencimento: {new Date(doc.dueDate).toLocaleDateString('pt-PT')}
                     </span>
                   )}
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(doc.id)}
+                    disabled={deletingId === doc.id}
+                    className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 disabled:opacity-60"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    {deletingId === doc.id ? 'A remover…' : 'Remover'}
+                  </button>
                 </div>
               </div>
               {doc.notes && <p className="mt-3 text-sm text-slate-600">{doc.notes}</p>}

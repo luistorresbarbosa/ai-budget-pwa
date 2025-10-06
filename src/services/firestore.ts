@@ -28,6 +28,27 @@ function getCollection<T extends { id: string }>(db: Firestore, path: Collection
   return collection(db, path);
 }
 
+function removeUndefinedValues<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((item) => removeUndefinedValues(item)) as unknown as T;
+  }
+
+  if (value && typeof value === 'object') {
+    if (value instanceof Date || value.constructor !== Object) {
+      return value;
+    }
+
+    return Object.entries(value as Record<string, unknown>)
+      .filter(([, entryValue]) => entryValue !== undefined)
+      .reduce<Record<string, unknown>>((accumulator, [key, entryValue]) => {
+        accumulator[key] = removeUndefinedValues(entryValue);
+        return accumulator;
+      }, {}) as T;
+  }
+
+  return value;
+}
+
 export function subscribeToCollection<T extends { id: string }>(
   db: Firestore,
   path: CollectionPath,
@@ -50,7 +71,8 @@ export function subscribeToCollection<T extends { id: string }>(
 
 export async function saveDocument<T extends { id: string }>(db: Firestore, path: CollectionPath, data: T): Promise<void> {
   const { id, ...rest } = data;
-  await setDoc(doc(db, path, id), rest as DocumentData, { merge: true });
+  const sanitisedData = removeUndefinedValues(rest) as DocumentData;
+  await setDoc(doc(db, path, id), sanitisedData, { merge: true });
 }
 
 export async function createDocument<T extends { id?: string }>(
@@ -63,7 +85,8 @@ export async function createDocument<T extends { id?: string }>(
     return data.id;
   }
   const { id, ...rest } = data;
-  const docRef = await addDoc(collection(db, path), rest as DocumentData);
+  const sanitisedData = removeUndefinedValues(rest) as DocumentData;
+  const docRef = await addDoc(collection(db, path), sanitisedData);
   return docRef.id;
 }
 
