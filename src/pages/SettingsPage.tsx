@@ -1,4 +1,4 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAppState } from '../state/AppStateContext';
 import {
@@ -7,11 +7,20 @@ import {
   resetFirebase,
   validateFirebaseConfig
 } from '../services/firebase';
+import type { FirebaseConfig } from '../services/firebase';
 import {
   DEFAULT_OPENAI_BASE_URL,
   DEFAULT_OPENAI_MODEL,
   validateOpenAIConnection
 } from '../services/openai';
+import { persistAllIntegrationLogsToFirebase } from '../services/integrationLogs';
+import {
+  getIntegrationLogs,
+  logFirebaseEvent,
+  logOpenAIEvent,
+  subscribeToIntegrationLogs
+} from '../services/integrationLogger';
+import type { IntegrationLogsState } from '../types/integrationLogs';
 
 function SettingsPage() {
   const settings = useAppState((state) => state.settings);
@@ -24,8 +33,104 @@ function SettingsPage() {
     settings.firebaseConfig ? JSON.stringify(settings.firebaseConfig, null, 2) : ''
   );
   const [feedback, setFeedback] = useState<string | null>(null);
-  const [testFeedback, setTestFeedback] = useState<string | null>(null);
-  const [isTesting, setIsTesting] = useState(false);
+  const [openAITestFeedback, setOpenAITestFeedback] = useState<string | null>(null);
+  const [firebaseTestFeedback, setFirebaseTestFeedback] = useState<string | null>(null);
+  const [isTestingOpenAI, setIsTestingOpenAI] = useState(false);
+  const [isTestingFirebase, setIsTestingFirebase] = useState(false);
+  const [logsState, setLogsState] = useState<IntegrationLogsState>(() => getIntegrationLogs());
+  const openAILogs = logsState.openai;
+  const firebaseLogs = logsState.firebase;
+  const firebaseConfigFromSettings = settings.firebaseConfig;
+  const lastSyncedSignature = useRef<string | null>(null);
+  const isSyncingLogs = useRef(false);
+
+  useEffect(() => {
+    return subscribeToIntegrationLogs((state) => {
+      setLogsState(state);
+    });
+  }, []);
+
+  const logsSignature = useMemo(() => JSON.stringify(logsState), [logsState]);
+  const firebaseConfigSignature = useMemo(
+    () => (firebaseConfigFromSettings ? JSON.stringify(firebaseConfigFromSettings) : null),
+    [firebaseConfigFromSettings]
+  );
+
+  useEffect(() => {
+    if (!firebaseConfigFromSettings || !validateFirebaseConfig(firebaseConfigFromSettings)) {
+      lastSyncedSignature.current = null;
+      return;
+    }
+
+    const signature = `${firebaseConfigSignature ?? ''}|${logsSignature}`;
+    if (lastSyncedSignature.current === signature || isSyncingLogs.current) {
+      return;
+    }
+
+    isSyncingLogs.current = true;
+
+    (async () => {
+      try {
+        await persistAllIntegrationLogsToFirebase(firebaseConfigFromSettings, logsState);
+        lastSyncedSignature.current = signature;
+      } catch (error) {
+        console.error('Não foi possível sincronizar logs existentes com o Firebase.', error);
+      } finally {
+        isSyncingLogs.current = false;
+      }
+    })();
+  }, [firebaseConfigFromSettings, firebaseConfigSignature, logsSignature, logsState]);
+
+  const formatLogTimestamp = useMemo(
+    () =>
+      new Intl.DateTimeFormat('pt-PT', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      }),
+    []
+  );
+
+  const handleExportLogs = useCallback(() => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') {
+      return;
+    }
+
+    const exportLines: string[] = [];
+    const formatEntry = (entry: { timestamp: number; message: string }) => {
+      const timestamp = new Date(entry.timestamp).toISOString();
+      return `[${timestamp}] ${entry.message}`;
+    };
+
+    exportLines.push('# Logs de integrações');
+    exportLines.push('');
+    exportLines.push('## OpenAI');
+    if (openAILogs.length === 0) {
+      exportLines.push('Sem eventos registados.');
+    } else {
+      exportLines.push(...openAILogs.map((entry) => formatEntry(entry)));
+    }
+    exportLines.push('');
+    exportLines.push('## Firebase');
+    if (firebaseLogs.length === 0) {
+      exportLines.push('Sem eventos registados.');
+    } else {
+      exportLines.push(...firebaseLogs.map((entry) => formatEntry(entry)));
+    }
+
+    const blob = new Blob([exportLines.join('\n')], {
+      type: 'text/plain;charset=utf-8'
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    link.download = `ai-budget-integration-logs-${timestamp}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }, [firebaseLogs, openAILogs]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -35,22 +140,33 @@ function SettingsPage() {
         ? (JSON.parse(normalizedConfig) as Record<string, unknown>)
         : undefined;
       if (parsed && looksLikeServiceAccountConfig(parsed)) {
+        logFirebaseEvent('Configuração detectada como Service Account — requer configuração Web do Firebase.');
         setFeedback(
           'O JSON fornecido parece ser uma credencial de Service Account. Obtenha a configuração Web do Firebase (apiKey, authDomain, projectId, …) na consola do Firebase.'
         );
         return;
       }
       if (parsed && !validateFirebaseConfig(parsed)) {
+        logFirebaseEvent('Configuração Firebase incompleta: campos obrigatórios em falta.');
         setFeedback('Configuração Firebase incompleta.');
         return;
       }
       let firebaseSettings: typeof settings.firebaseConfig;
+      if (firebaseConfig.trim()) {
+        logFirebaseEvent('A validar configuração Firebase fornecida…');
+      }
       if (parsed && validateFirebaseConfig(parsed)) {
         firebaseSettings = parsed;
         await initializeFirebase(firebaseSettings);
+        logFirebaseEvent('Ligação ao Firebase inicializada com sucesso.');
       } else {
         firebaseSettings = undefined;
         await resetFirebase();
+        if (parsed) {
+          logFirebaseEvent('Configuração Firebase inválida: faltam campos obrigatórios.');
+        } else {
+          logFirebaseEvent('Configuração Firebase removida.');
+        }
       }
       const normalizedBaseUrl = openAIBaseUrl.trim();
       const normalizedModel = openAIModel.trim();
@@ -75,21 +191,25 @@ function SettingsPage() {
       console.error(error);
       if (error instanceof SyntaxError) {
         setFeedback('JSON inválido. Verifique a configuração do Firebase.');
+        logFirebaseEvent('JSON inválido fornecido. Falha ao analisar a configuração do Firebase.');
         return;
       }
       const message = error instanceof Error ? error.message : 'Motivo desconhecido';
       setFeedback(`Não foi possível guardar as definições: ${message}`);
+      logFirebaseEvent(`Erro ao guardar as definições: ${message}`);
     }
   }
 
   async function handleTestOpenAI() {
     if (!apiKey) {
-      setTestFeedback('Insira uma chave da OpenAI antes de testar a ligação.');
+      setOpenAITestFeedback('Insira uma chave da OpenAI antes de testar a ligação.');
+      logOpenAIEvent('Teste cancelado: chave da OpenAI em falta.');
       return;
     }
 
-    setIsTesting(true);
-    setTestFeedback('A validar ligação à OpenAI…');
+    setIsTestingOpenAI(true);
+    setOpenAITestFeedback('A validar ligação à OpenAI…');
+    logOpenAIEvent('A validar ligação à OpenAI…');
     try {
       const result = await validateOpenAIConnection(
         {
@@ -104,15 +224,70 @@ function SettingsPage() {
         if (typeof result.latencyMs === 'number') {
           messageParts.push(`Latência aproximada: ${result.latencyMs}ms.`);
         }
-        setTestFeedback(messageParts.join(' '));
+        setOpenAITestFeedback(messageParts.join(' '));
+        logOpenAIEvent(`Ligação validada com sucesso. Modelo: ${result.model}.`);
       } else {
-        setTestFeedback(result.message);
+        setOpenAITestFeedback(result.message);
+        logOpenAIEvent(`Falha na validação da ligação: ${result.message}`);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erro desconhecido ao contactar a OpenAI.';
-      setTestFeedback(`Falha ao validar ligação: ${message}`);
+      setOpenAITestFeedback(`Falha ao validar ligação: ${message}`);
+      logOpenAIEvent(`Erro ao contactar a OpenAI: ${message}`);
     } finally {
-      setIsTesting(false);
+      setIsTestingOpenAI(false);
+    }
+  }
+
+  async function handleTestFirebase() {
+    const trimmedConfig = firebaseConfig.trim();
+    if (!trimmedConfig) {
+      setFirebaseTestFeedback('Insira a configuração Firebase em JSON antes de testar a ligação.');
+      logFirebaseEvent('Teste cancelado: configuração Firebase em falta.');
+      return;
+    }
+
+    setIsTestingFirebase(true);
+    setFirebaseTestFeedback('A validar ligação ao Firebase…');
+    logFirebaseEvent('A validar ligação ao Firebase…');
+
+    try {
+      const parsedConfig = JSON.parse(trimmedConfig) as Partial<FirebaseConfig>;
+      if (looksLikeServiceAccountConfig(parsedConfig)) {
+        setFirebaseTestFeedback(
+          'O JSON fornecido parece ser uma credencial de Service Account. Obtenha a configuração Web do Firebase (apiKey, authDomain, projectId, …) na consola do Firebase.'
+        );
+        logFirebaseEvent('Teste cancelado: configuração detectada como Service Account — requer configuração Web do Firebase.');
+        return;
+      }
+
+      if (!validateFirebaseConfig(parsedConfig)) {
+        setFirebaseTestFeedback('Configuração Firebase incompleta. Confirme se todos os campos obrigatórios estão presentes.');
+        logFirebaseEvent('Teste falhou: configuração Firebase incompleta.');
+        return;
+      }
+
+      const start = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      await initializeFirebase(parsedConfig);
+      const end = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      const latency = Math.round(end - start);
+
+      const successMessage = latency > 0
+        ? `Ligação ao Firebase validada com sucesso. Latência aproximada: ${latency}ms.`
+        : 'Ligação ao Firebase validada com sucesso.';
+      setFirebaseTestFeedback(successMessage);
+      logFirebaseEvent('Ligação ao Firebase validada com sucesso.');
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        setFirebaseTestFeedback('JSON inválido. Verifique a configuração do Firebase.');
+        logFirebaseEvent('Teste falhou: JSON inválido fornecido para a configuração Firebase.');
+        return;
+      }
+      const message = error instanceof Error ? error.message : 'Erro desconhecido ao contactar o Firebase.';
+      setFirebaseTestFeedback(`Falha ao validar ligação: ${message}`);
+      logFirebaseEvent(`Erro ao validar a ligação Firebase: ${message}`);
+    } finally {
+      setIsTestingFirebase(false);
     }
   }
 
@@ -172,22 +347,22 @@ function SettingsPage() {
             <button
               type="button"
               onClick={handleTestOpenAI}
-              disabled={isTesting}
+              disabled={isTestingOpenAI}
               className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:border-slate-400 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900 md:w-auto"
             >
-              {isTesting ? 'A validar…' : 'Testar ligação OpenAI'}
+              {isTestingOpenAI ? 'A validar…' : 'Testar ligação OpenAI'}
             </button>
             <AnimatePresence>
-              {testFeedback && (
+              {openAITestFeedback && (
                 <motion.p
-                  key={testFeedback}
+                  key={openAITestFeedback}
                   initial={{ opacity: 0, y: -6 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -6 }}
                   transition={{ duration: 0.25 }}
                   className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600 shadow-sm"
                 >
-                  {testFeedback}
+                  {openAITestFeedback}
                 </motion.p>
               )}
             </AnimatePresence>
@@ -214,6 +389,30 @@ function SettingsPage() {
             className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-900 focus:ring-slate-900/10"
           />
         </label>
+        <div className="space-y-3">
+          <button
+            type="button"
+            onClick={handleTestFirebase}
+            disabled={isTestingFirebase}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:border-slate-400 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900 sm:w-auto"
+          >
+            {isTestingFirebase ? 'A validar…' : 'Testar ligação Firebase'}
+          </button>
+          <AnimatePresence>
+            {firebaseTestFeedback && (
+              <motion.p
+                key={firebaseTestFeedback}
+                initial={{ opacity: 0, y: -6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.25 }}
+                className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600 shadow-sm"
+              >
+                {firebaseTestFeedback}
+              </motion.p>
+            )}
+          </AnimatePresence>
+        </div>
         <button
           type="submit"
           className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900 sm:w-auto sm:px-6"
@@ -235,6 +434,87 @@ function SettingsPage() {
           )}
         </AnimatePresence>
       </motion.form>
+      <motion.section
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.15, duration: 0.35, ease: 'easeOut' }}
+        className="space-y-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
+      >
+        <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-1">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Logs de ligação</p>
+            <h2 className="text-lg font-semibold text-slate-900">Estado das integrações</h2>
+            <p className="text-sm text-slate-500">Acompanhe o histórico recente de eventos das integrações com a OpenAI e o Firebase.</p>
+          </div>
+          <button
+            type="button"
+            onClick={handleExportLogs}
+            className="inline-flex items-center justify-center rounded-2xl border border-slate-300 bg-white px-4 py-2 text-xs font-medium uppercase tracking-wide text-slate-600 shadow-sm transition hover:border-slate-400 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900"
+          >
+            Exportar logs (.txt)
+          </button>
+        </header>
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">OpenAI</p>
+              <span className="text-[10px] uppercase tracking-wide text-slate-400">Últimos {openAILogs.length} eventos</span>
+            </div>
+            <ul className="space-y-2 text-sm text-slate-600">
+              {openAILogs.length === 0 ? (
+                <li className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-400 shadow-sm">
+                  Sem eventos registados.
+                </li>
+              ) : (
+                openAILogs
+                  .slice()
+                  .reverse()
+                  .map((entry) => (
+                    <li
+                      key={`${entry.timestamp}-${entry.message}`}
+                      className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-500 shadow-sm"
+                    >
+                      <span className="font-mono text-[10px] uppercase tracking-wide text-slate-400">
+                        {formatLogTimestamp.format(entry.timestamp)}
+                      </span>
+                      <br />
+                      {entry.message}
+                    </li>
+                  ))
+              )}
+            </ul>
+          </div>
+          <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Firebase</p>
+              <span className="text-[10px] uppercase tracking-wide text-slate-400">Últimos {firebaseLogs.length} eventos</span>
+            </div>
+            <ul className="space-y-2 text-sm text-slate-600">
+              {firebaseLogs.length === 0 ? (
+                <li className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-400 shadow-sm">
+                  Sem eventos registados.
+                </li>
+              ) : (
+                firebaseLogs
+                  .slice()
+                  .reverse()
+                  .map((entry) => (
+                    <li
+                      key={`${entry.timestamp}-${entry.message}`}
+                      className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-500 shadow-sm"
+                    >
+                      <span className="font-mono text-[10px] uppercase tracking-wide text-slate-400">
+                        {formatLogTimestamp.format(entry.timestamp)}
+                      </span>
+                      <br />
+                      {entry.message}
+                    </li>
+                  ))
+              )}
+            </ul>
+          </div>
+        </div>
+      </motion.section>
     </motion.section>
   );
 }
