@@ -6,9 +6,11 @@ import TimelinePage from './pages/TimelinePage';
 import ExpensesPage from './pages/ExpensesPage';
 import SettingsPage from './pages/SettingsPage';
 import { useFirestoreSync } from './hooks/useFirestoreSync';
+import { useIntegrationLogsSync } from './hooks/useIntegrationLogsSync';
 
 function App() {
   useFirestoreSync();
+  useIntegrationLogsSync();
 
   return (
     <AppLayout>
