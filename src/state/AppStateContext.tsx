@@ -63,15 +63,15 @@ export const createAppStore = (initialState?: Partial<AppState>) =>
     settings: resolveInitialSettings(initialState),
     addDocument: (doc) =>
       set((state) => ({
-        documents: [doc, ...state.documents]
+        documents: [doc, ...state.documents.filter((existing) => existing.id !== doc.id)]
       })),
     addExpense: (expense) =>
       set((state) => ({
-        expenses: [expense, ...state.expenses]
+        expenses: [expense, ...state.expenses.filter((existing) => existing.id !== expense.id)]
       })),
     addTransfer: (transfer) =>
       set((state) => ({
-        transfers: [transfer, ...state.transfers]
+        transfers: [transfer, ...state.transfers.filter((existing) => existing.id !== transfer.id)]
       })),
     removeDocument: (documentId) =>
       set((state) => ({

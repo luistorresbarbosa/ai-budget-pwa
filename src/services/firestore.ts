@@ -12,6 +12,12 @@ import {
 } from 'firebase/firestore';
 import { logFirebaseEvent } from './integrationLogger';
 
+function sanitizeFirestoreData<T extends Record<string, unknown>>(data: T): T {
+  return Object.fromEntries(
+    Object.entries(data).filter(([, value]) => value !== undefined)
+  ) as T;
+}
+
 export type WithOptionalId<T> = T & { id?: string };
 export type WithId<T> = T & { id: string };
 
@@ -90,7 +96,8 @@ export async function saveDocument<T extends { id: string }>(
       }
     });
   }
-  await setDoc(doc(db, path, id), rest as DocumentData, { merge: true });
+  const sanitizedData = sanitizeFirestoreData(rest as Record<string, unknown>);
+  await setDoc(doc(db, path, id), sanitizedData as DocumentData, { merge: true });
   if (!options?.skipLog) {
     logFirebaseEvent('← Documento guardado no Firestore.', {
       details: {
@@ -117,7 +124,8 @@ export async function createDocument<T extends { id?: string }>(
       details: { path }
     });
   }
-  const docRef = await addDoc(collection(db, path), rest as DocumentData);
+  const sanitizedData = sanitizeFirestoreData(rest as Record<string, unknown>);
+  const docRef = await addDoc(collection(db, path), sanitizedData as DocumentData);
   if (!options?.skipLog) {
     logFirebaseEvent('← Documento criado no Firestore.', {
       details: {

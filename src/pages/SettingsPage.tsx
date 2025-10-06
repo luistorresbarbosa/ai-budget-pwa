@@ -27,6 +27,58 @@ import {
   MAX_INTEGRATION_LOGS
 } from '../types/integrationLogs';
 
+const MIN_INTEGRATION_LOGS_PAGE_SIZE = 1;
+
+function normaliseLogsPerPage(value?: number | null): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return DEFAULT_INTEGRATION_LOGS_PAGE_SIZE;
+  }
+  const rounded = Math.floor(value);
+  if (rounded < MIN_INTEGRATION_LOGS_PAGE_SIZE) {
+    return DEFAULT_INTEGRATION_LOGS_PAGE_SIZE;
+  }
+  if (rounded > MAX_INTEGRATION_LOGS) {
+    return MAX_INTEGRATION_LOGS;
+  }
+  return rounded;
+}
+
+interface PaginatedLogsResult<T> {
+  items: T[];
+  page: number;
+  pageSize: number;
+  totalItems: number;
+  totalPages: number;
+  rangeStart: number;
+  rangeEnd: number;
+  hasMultiplePages: boolean;
+}
+
+function paginateLogs<T>(
+  items: readonly T[],
+  requestedPageSize: number,
+  requestedPage: number
+): PaginatedLogsResult<T> {
+  const totalItems = items.length;
+  const pageSize = normaliseLogsPerPage(requestedPageSize);
+  const totalPages = totalItems === 0 ? 1 : Math.max(1, Math.ceil(totalItems / pageSize));
+  const safePage = Math.min(Math.max(Math.floor(requestedPage) || 1, 1), totalPages);
+  const startIndex = totalItems === 0 ? 0 : (safePage - 1) * pageSize;
+  const endIndex = totalItems === 0 ? 0 : Math.min(startIndex + pageSize, totalItems);
+  const pageItems = items.slice(startIndex, endIndex);
+
+  return {
+    items: pageItems,
+    page: safePage,
+    pageSize,
+    totalItems,
+    totalPages,
+    rangeStart: totalItems === 0 ? 0 : startIndex + 1,
+    rangeEnd: totalItems === 0 ? 0 : startIndex + pageItems.length,
+    hasMultiplePages: totalItems > pageSize
+  };
+}
+
 function SettingsPage() {
   const settings = useAppState((state) => state.settings);
   const updateSettings = useAppState((state) => state.updateSettings);
@@ -48,8 +100,8 @@ function SettingsPage() {
   const [isTestingOpenAI, setIsTestingOpenAI] = useState(false);
   const [isTestingFirebase, setIsTestingFirebase] = useState(false);
   const [logsState, setLogsState] = useState<IntegrationLogsState>(() => getIntegrationLogs());
-  const [logsPerPage, setLogsPerPage] = useState(
-    settings.integrationLogsPageSize || DEFAULT_INTEGRATION_LOGS_PAGE_SIZE
+  const [logsPerPage, setLogsPerPage] = useState(() =>
+    normaliseLogsPerPage(settings.integrationLogsPageSize)
   );
   const [openAILogsPage, setOpenAILogsPage] = useState(1);
   const [firebaseLogsPage, setFirebaseLogsPage] = useState(1);
@@ -66,61 +118,118 @@ function SettingsPage() {
   }, []);
 
   useEffect(() => {
-    setLogsPerPage(settings.integrationLogsPageSize || DEFAULT_INTEGRATION_LOGS_PAGE_SIZE);
+    setLogsPerPage(normaliseLogsPerPage(settings.integrationLogsPageSize));
   }, [settings.integrationLogsPageSize]);
 
   const logsPerPageOptions = useMemo(() => {
-    const baseOptions = [5, 10, 15, 20, DEFAULT_INTEGRATION_LOGS_PAGE_SIZE, MAX_INTEGRATION_LOGS];
-    const filtered = baseOptions.filter((value) => value > 0 && value <= MAX_INTEGRATION_LOGS);
+    const baseOptions = [
+      5,
+      10,
+      15,
+      20,
+      DEFAULT_INTEGRATION_LOGS_PAGE_SIZE,
+      MAX_INTEGRATION_LOGS,
+      logsPerPage
+    ];
+    const filtered = baseOptions
+      .map((value) => normaliseLogsPerPage(value))
+      .filter((value) => value >= MIN_INTEGRATION_LOGS_PAGE_SIZE && value <= MAX_INTEGRATION_LOGS);
     const unique = Array.from(new Set(filtered));
     unique.sort((a, b) => a - b);
     return unique;
-  }, []);
+  }, [logsPerPage]);
 
   const logsPerPageSelectId = 'integration-logs-page-size';
 
   const sortedOpenAILogs = useMemo(() => openAILogs.slice().reverse(), [openAILogs]);
   const sortedFirebaseLogs = useMemo(() => firebaseLogs.slice().reverse(), [firebaseLogs]);
 
-  const openAILogsTotalPages = Math.max(1, Math.ceil(sortedOpenAILogs.length / logsPerPage));
-  const firebaseLogsTotalPages = Math.max(1, Math.ceil(sortedFirebaseLogs.length / logsPerPage));
+  const openAIPagination = useMemo(
+    () => paginateLogs(sortedOpenAILogs, logsPerPage, openAILogsPage),
+    [logsPerPage, openAILogsPage, sortedOpenAILogs]
+  );
+
+  const firebasePagination = useMemo(
+    () => paginateLogs(sortedFirebaseLogs, logsPerPage, firebaseLogsPage),
+    [firebaseLogsPage, logsPerPage, sortedFirebaseLogs]
+  );
 
   useEffect(() => {
-    setOpenAILogsPage((current) => Math.min(current, openAILogsTotalPages));
-  }, [openAILogsTotalPages]);
+    if (openAILogsPage !== openAIPagination.page) {
+      setOpenAILogsPage(openAIPagination.page);
+    }
+  }, [openAILogsPage, openAIPagination.page]);
 
   useEffect(() => {
-    setFirebaseLogsPage((current) => Math.min(current, firebaseLogsTotalPages));
-  }, [firebaseLogsTotalPages]);
+    if (firebaseLogsPage !== firebasePagination.page) {
+      setFirebaseLogsPage(firebasePagination.page);
+    }
+  }, [firebaseLogsPage, firebasePagination.page]);
 
   useEffect(() => {
     setOpenAILogsPage(1);
     setFirebaseLogsPage(1);
   }, [logsPerPage]);
 
-  const paginatedOpenAILogs = useMemo(() => {
-    const start = (openAILogsPage - 1) * logsPerPage;
-    return sortedOpenAILogs.slice(start, start + logsPerPage);
-  }, [logsPerPage, openAILogsPage, sortedOpenAILogs]);
+  const {
+    items: paginatedOpenAILogs,
+    totalItems: openAILogsTotal,
+    totalPages: openAILogsTotalPages,
+    page: openAILogsCurrentPage,
+    rangeStart: openAILogsRangeStart,
+    rangeEnd: openAILogsRangeEnd,
+    hasMultiplePages: shouldShowOpenAILogsPagination
+  } = openAIPagination;
 
-  const paginatedFirebaseLogs = useMemo(() => {
-    const start = (firebaseLogsPage - 1) * logsPerPage;
-    return sortedFirebaseLogs.slice(start, start + logsPerPage);
-  }, [firebaseLogsPage, logsPerPage, sortedFirebaseLogs]);
+  const {
+    items: paginatedFirebaseLogs,
+    totalItems: firebaseLogsTotal,
+    totalPages: firebaseLogsTotalPages,
+    page: firebaseLogsCurrentPage,
+    rangeStart: firebaseLogsRangeStart,
+    rangeEnd: firebaseLogsRangeEnd,
+    hasMultiplePages: shouldShowFirebaseLogsPagination
+  } = firebasePagination;
 
-  const openAILogsTotal = sortedOpenAILogs.length;
-  const firebaseLogsTotal = sortedFirebaseLogs.length;
+  const handleOpenAIPreviousPage = useCallback(() => {
+    setOpenAILogsPage((current) => {
+      const clampedCurrent = Math.min(
+        Math.max(current, 1),
+        openAILogsTotalPages
+      );
+      return Math.max(1, clampedCurrent - 1);
+    });
+  }, [openAILogsTotalPages]);
 
-  const openAILogsRangeStart = openAILogsTotal === 0 ? 0 : (openAILogsPage - 1) * logsPerPage + 1;
-  const openAILogsRangeEnd =
-    openAILogsTotal === 0 ? 0 : Math.min(openAILogsRangeStart + paginatedOpenAILogs.length - 1, openAILogsTotal);
+  const handleOpenAINextPage = useCallback(() => {
+    setOpenAILogsPage((current) => {
+      const clampedCurrent = Math.min(
+        Math.max(current, 1),
+        openAILogsTotalPages
+      );
+      return Math.min(openAILogsTotalPages, clampedCurrent + 1);
+    });
+  }, [openAILogsTotalPages]);
 
-  const firebaseLogsRangeStart = firebaseLogsTotal === 0 ? 0 : (firebaseLogsPage - 1) * logsPerPage + 1;
-  const firebaseLogsRangeEnd =
-    firebaseLogsTotal === 0 ? 0 : Math.min(firebaseLogsRangeStart + paginatedFirebaseLogs.length - 1, firebaseLogsTotal);
+  const handleFirebasePreviousPage = useCallback(() => {
+    setFirebaseLogsPage((current) => {
+      const clampedCurrent = Math.min(
+        Math.max(current, 1),
+        firebaseLogsTotalPages
+      );
+      return Math.max(1, clampedCurrent - 1);
+    });
+  }, [firebaseLogsTotalPages]);
 
-  const shouldShowOpenAILogsPagination = openAILogsTotal > logsPerPage;
-  const shouldShowFirebaseLogsPagination = firebaseLogsTotal > logsPerPage;
+  const handleFirebaseNextPage = useCallback(() => {
+    setFirebaseLogsPage((current) => {
+      const clampedCurrent = Math.min(
+        Math.max(current, 1),
+        firebaseLogsTotalPages
+      );
+      return Math.min(firebaseLogsTotalPages, clampedCurrent + 1);
+    });
+  }, [firebaseLogsTotalPages]);
 
   const loadOpenAIModels = useCallback(
     async (abortSignal?: AbortSignal) => {
@@ -248,16 +357,16 @@ function SettingsPage() {
 
   const handleLogsPerPageChange = useCallback(
     (event: ChangeEvent<HTMLSelectElement>) => {
-      const nextValue = Number(event.target.value);
-      if (!Number.isInteger(nextValue) || nextValue <= 0) {
-        return;
-      }
+      const parsedValue = Number(event.target.value);
+      const nextValue = normaliseLogsPerPage(
+        Number.isFinite(parsedValue) ? parsedValue : logsPerPage
+      );
       setLogsPerPage(nextValue);
       setOpenAILogsPage(1);
       setFirebaseLogsPage(1);
       updateSettings({ integrationLogsPageSize: nextValue });
     },
-    [updateSettings]
+    [logsPerPage, updateSettings]
   );
 
   const logsSignature = useMemo(() => JSON.stringify(logsState), [logsState]);
@@ -803,24 +912,22 @@ function SettingsPage() {
             {openAILogsTotal > 0 && (
               <div className="flex flex-col gap-2 pt-1 text-[10px] uppercase tracking-wide text-slate-400 sm:flex-row sm:items-center sm:justify-between">
                 <span>
-                  Mostrando {openAILogsRangeStart}–{openAILogsRangeEnd} de {openAILogsTotal} (página {openAILogsPage} de {openAILogsTotalPages})
+                  Mostrando {openAILogsRangeStart}–{openAILogsRangeEnd} de {openAILogsTotal} (página {openAILogsCurrentPage} de {openAILogsTotalPages})
                 </span>
                 {shouldShowOpenAILogsPagination && (
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => setOpenAILogsPage((current) => Math.max(1, current - 1))}
-                      disabled={openAILogsPage === 1}
+                      onClick={handleOpenAIPreviousPage}
+                      disabled={openAILogsCurrentPage === 1}
                       className="inline-flex items-center justify-center rounded-full border border-slate-300 bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 shadow-sm transition hover:border-slate-400 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Anterior
                     </button>
                     <button
                       type="button"
-                      onClick={() =>
-                        setOpenAILogsPage((current) => Math.min(openAILogsTotalPages, current + 1))
-                      }
-                      disabled={openAILogsPage === openAILogsTotalPages}
+                      onClick={handleOpenAINextPage}
+                      disabled={openAILogsCurrentPage === openAILogsTotalPages}
                       className="inline-flex items-center justify-center rounded-full border border-slate-300 bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 shadow-sm transition hover:border-slate-400 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Seguinte
@@ -860,24 +967,22 @@ function SettingsPage() {
             {firebaseLogsTotal > 0 && (
               <div className="flex flex-col gap-2 pt-1 text-[10px] uppercase tracking-wide text-slate-400 sm:flex-row sm:items-center sm:justify-between">
                 <span>
-                  Mostrando {firebaseLogsRangeStart}–{firebaseLogsRangeEnd} de {firebaseLogsTotal} (página {firebaseLogsPage} de {firebaseLogsTotalPages})
+                  Mostrando {firebaseLogsRangeStart}–{firebaseLogsRangeEnd} de {firebaseLogsTotal} (página {firebaseLogsCurrentPage} de {firebaseLogsTotalPages})
                 </span>
                 {shouldShowFirebaseLogsPagination && (
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => setFirebaseLogsPage((current) => Math.max(1, current - 1))}
-                      disabled={firebaseLogsPage === 1}
+                      onClick={handleFirebasePreviousPage}
+                      disabled={firebaseLogsCurrentPage === 1}
                       className="inline-flex items-center justify-center rounded-full border border-slate-300 bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 shadow-sm transition hover:border-slate-400 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Anterior
                     </button>
                     <button
                       type="button"
-                      onClick={() =>
-                        setFirebaseLogsPage((current) => Math.min(firebaseLogsTotalPages, current + 1))
-                      }
-                      disabled={firebaseLogsPage === firebaseLogsTotalPages}
+                      onClick={handleFirebaseNextPage}
+                      disabled={firebaseLogsCurrentPage === firebaseLogsTotalPages}
                       className="inline-flex items-center justify-center rounded-full border border-slate-300 bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 shadow-sm transition hover:border-slate-400 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Seguinte
