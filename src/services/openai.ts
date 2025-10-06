@@ -79,6 +79,8 @@ export interface OpenAIDocumentExtraction {
   currency?: string;
   dueDate?: string;
   accountHint?: string;
+  companyName?: string;
+  expenseType?: string;
   notes?: string;
   rawResponse?: unknown;
 }
@@ -585,12 +587,13 @@ export async function extractPdfMetadataWithOpenAI({
               {
                 type: 'input_text',
                 text:
-                  'Analisa o PDF fornecido e devolve um JSON com os campos "sourceType", "amount", "currency", "dueDate", "accountHint" e "notes". ' +
+                  'Analisa o PDF fornecido e devolve um JSON com os campos "sourceType", "amount", "currency", "dueDate", "accountHint", "companyName", "expenseType" e "notes". ' +
                   'sourceType deve ser um de: fatura, recibo ou extracto. amount deve ser número. dueDate deve estar em ISO 8601 se existir. ' +
+                  'Para identificar o accountHint, procura explicitamente por campos etiquetados como "IBAN" e devolve esse valor quando estiver presente. ' +
                   (accountContext
                     ? `A conta de contexto preferencial é "${accountContext}". Considera-a ao interpretar o documento. `
                     : '') +
-                  'Se um campo não existir, devolve null.'
+                  'Se um campo não existir, devolve null. companyName deve refletir a entidade emissora (empresa ou organização). expenseType deve indicar a categoria ou tipo da despesa (ex.: Luz, Água, Renda).'
               },
               {
                 type: 'input_file',
@@ -622,11 +625,26 @@ export async function extractPdfMetadataWithOpenAI({
                 accountHint: {
                   type: ['string', 'null']
                 },
+                companyName: {
+                  type: ['string', 'null']
+                },
+                expenseType: {
+                  type: ['string', 'null']
+                },
                 notes: {
                   type: ['string', 'null']
                 }
               },
-              required: ['sourceType', 'amount', 'currency', 'dueDate', 'accountHint', 'notes'],
+              required: [
+                'sourceType',
+                'amount',
+                'currency',
+                'dueDate',
+                'accountHint',
+                'companyName',
+                'expenseType',
+                'notes'
+              ],
               additionalProperties: false
             }
           }
@@ -644,6 +662,8 @@ export async function extractPdfMetadataWithOpenAI({
         currency: typeof parsed.currency === 'string' ? parsed.currency : undefined,
         dueDate: typeof parsed.dueDate === 'string' ? parsed.dueDate : undefined,
         accountHint: typeof parsed.accountHint === 'string' ? parsed.accountHint : undefined,
+        companyName: typeof parsed.companyName === 'string' ? parsed.companyName : undefined,
+        expenseType: typeof parsed.expenseType === 'string' ? parsed.expenseType : undefined,
         notes: typeof parsed.notes === 'string' ? parsed.notes : undefined,
         rawResponse: payload
       };

@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import type { LucideIcon } from 'lucide-react';
 import {
   CalendarDays,
+  Files,
   ReceiptText,
   RefreshCcw,
   Settings,
@@ -13,7 +14,7 @@ import {
 } from 'lucide-react';
 
 const links: Array<{ to: string; label: string; icon: LucideIcon }> = [
-  { to: '/upload', label: 'Upload PDFs', icon: UploadCloud },
+  { to: '/documents', label: 'Documentos', icon: Files },
   { to: '/accounts', label: 'Contas', icon: PiggyBank },
   { to: '/transfers', label: 'Transferências', icon: RefreshCcw },
   { to: '/timeline', label: 'Timeline', icon: CalendarDays },
