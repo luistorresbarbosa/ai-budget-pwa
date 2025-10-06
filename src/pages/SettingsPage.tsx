@@ -631,6 +631,228 @@ function SettingsPage() {
         transition={{ delay: 0.1, duration: 0.35, ease: 'easeOut' }}
         className="space-y-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
       >
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 shadow-sm">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">OpenAI</p>
+            <label className="block space-y-2 text-sm text-slate-600">
+              <span className="text-xs uppercase tracking-wide text-slate-400">Chave API OpenAI</span>
+              <input
+                type="password"
+                placeholder="sk-..."
+                value={apiKey}
+                onChange={(event) => setApiKey(event.target.value)}
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-900 focus:ring-slate-900/10"
+              />
+            </label>
+            <label className="block space-y-2 text-sm text-slate-600">
+              <span className="text-xs uppercase tracking-wide text-slate-400">Endpoint (opcional)</span>
+              <input
+                type="url"
+                placeholder={DEFAULT_OPENAI_BASE_URL}
+                value={openAIBaseUrl}
+                onChange={(event) => setOpenAIBaseUrl(event.target.value)}
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-900 focus:ring-slate-900/10"
+              />
+            </label>
+            <label className="block space-y-2 text-sm text-slate-600">
+              <span className="text-xs uppercase tracking-wide text-slate-400">Modelo</span>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <select
+                  value={openAIModel}
+                  onChange={(event) => setOpenAIModel(event.target.value)}
+                  disabled={isLoadingOpenAIModels || (!hasOpenAIApiKey && availableOpenAIModels.length === 0)}
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10 disabled:cursor-not-allowed disabled:bg-slate-100"
+                >
+                  {openAIModelOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={handleRefreshOpenAIModels}
+                  disabled={!hasOpenAIApiKey || isLoadingOpenAIModels}
+                  className="inline-flex items-center justify-center rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600 shadow-sm transition hover:border-slate-400 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900"
+                >
+                  {isLoadingOpenAIModels ? 'A carregar…' : 'Atualizar'}
+                </button>
+              </div>
+              {!hasOpenAIApiKey && (
+                <p className="text-xs text-slate-400">
+                  Insira a chave da OpenAI para carregar modelos disponíveis automaticamente.
+                </p>
+              )}
+              {openAIModelsError && <p className="text-xs text-amber-600">{openAIModelsError}</p>}
+            </label>
+            <button
+              type="button"
+              onClick={handleTestOpenAI}
+              disabled={isTestingOpenAI}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:border-slate-400 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900 md:w-auto"
+            >
+              {isTestingOpenAI ? 'A validar…' : 'Testar ligação OpenAI'}
+            </button>
+            <AnimatePresence>
+              {openAITestFeedback && (
+                <motion.p
+                  key={openAITestFeedback}
+                  initial={{ opacity: 0, y: -6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={{ duration: 0.25 }}
+                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600 shadow-sm"
+                >
+                  {openAITestFeedback}
+                </motion.p>
+              )}
+            </AnimatePresence>
+            <AnimatePresence>
+              {formattedOpenAIBalance && (
+                <motion.div
+                  key={`openai-balance-${formattedOpenAIBalance.available}-${formattedOpenAIBalance.used}`}
+                  initial={{ opacity: 0, y: -6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={{ duration: 0.25 }}
+                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600 shadow-sm"
+                >
+                  <p>
+                    Saldo disponível: <span className="font-semibold text-slate-700">{formattedOpenAIBalance.available}</span>
+                  </p>
+                  <p className="mt-1 text-[10px] uppercase tracking-wide text-slate-400">
+                    Limite: {formattedOpenAIBalance.granted} • Utilizado: {formattedOpenAIBalance.used}
+                  </p>
+                  {formattedOpenAIBalance.expiry && (
+                    <p className="mt-1 text-[10px] uppercase tracking-wide text-slate-400">
+                      Expira em {formattedOpenAIBalance.expiry}
+                    </p>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+            <AnimatePresence>
+              {openAIBalanceError && (
+                <motion.p
+                  key={openAIBalanceError}
+                  initial={{ opacity: 0, y: -6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={{ duration: 0.25 }}
+                  className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-700 shadow-sm"
+                >
+                  {openAIBalanceError}
+                </motion.p>
+              )}
+            </AnimatePresence>
+          </div>
+          <div className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 shadow-sm">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Preferências</p>
+            <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 shadow-sm">
+              <input
+                type="checkbox"
+                checked={autoDetect}
+                onChange={(event) => setAutoDetect(event.target.checked)}
+                className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900/30"
+              />
+              Detectar automaticamente despesas fixas
+            </label>
+          </div>
+        </div>
+        <label className="block space-y-2 text-sm text-slate-600">
+          <span className="text-xs uppercase tracking-wide text-slate-400">Configuração Firebase (JSON)</span>
+          <textarea
+            rows={6}
+            value={firebaseConfig}
+            onChange={(event) => setFirebaseConfig(event.target.value)}
+            className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-900 focus:ring-slate-900/10"
+          />
+        </label>
+        <div className="space-y-3">
+          <button
+            type="button"
+            onClick={handleTestFirebase}
+            disabled={isTestingFirebase}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:border-slate-400 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900 sm:w-auto"
+          >
+            {isTestingFirebase ? 'A validar…' : 'Testar ligação Firebase'}
+          </button>
+          <AnimatePresence>
+            {firebaseTestFeedback && (
+              <motion.p
+                key={firebaseTestFeedback}
+                initial={{ opacity: 0, y: -6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.25 }}
+                className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600 shadow-sm"
+              >
+                {firebaseTestFeedback}
+              </motion.p>
+            )}
+          </AnimatePresence>
+        </div>
+        <button
+          type="submit"
+          className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900 sm:w-auto sm:px-6"
+        >
+          Guardar
+        </button>
+        <AnimatePresence>
+          {feedback && (
+            <motion.p
+              key={feedback}
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.25 }}
+              className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 shadow-sm"
+            >
+              {feedback}
+            </motion.p>
+          )}
+        </AnimatePresence>
+      </motion.form>
+      <motion.section
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.15, duration: 0.35, ease: 'easeOut' }}
+        className="space-y-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
+      >
+        <header className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="space-y-1">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Logs de ligação</p>
+            <h2 className="text-lg font-semibold text-slate-900">Estado das integrações</h2>
+            <p className="text-sm text-slate-500">Acompanhe o histórico recente de eventos das integrações com a OpenAI e o Firebase.</p>
+          </div>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end sm:gap-4">
+            <label
+              htmlFor={logsPerPageSelectId}
+              className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500 sm:flex-row sm:items-center sm:gap-3"
+            >
+              <span>Resultados por página</span>
+              <select
+                id={logsPerPageSelectId}
+                value={logsPerPage}
+                onChange={handleLogsPerPageChange}
+                className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-sm transition hover:border-slate-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900"
+              >
+                {logsPerPageOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              onClick={handleExportLogs}
+              className="inline-flex items-center justify-center rounded-2xl border border-slate-300 bg-white px-4 py-2 text-xs font-medium uppercase tracking-wide text-slate-600 shadow-sm transition hover:border-slate-400 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900"
+            >
+              Exportar logs (.txt)
+            </button>
+          </div>
+        </header>
         <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
@@ -701,7 +923,7 @@ function SettingsPage() {
             </div>
           )}
         </div>
-      </motion.form>
+      </motion.section>
     </motion.section>
   );
 }
