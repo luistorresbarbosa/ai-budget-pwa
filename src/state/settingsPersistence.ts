@@ -1,6 +1,6 @@
 import type { AppSettings } from '../data/models';
 import { DEFAULT_INTEGRATION_LOGS_PAGE_SIZE, MAX_INTEGRATION_LOGS } from '../types/integrationLogs';
-import { validateFirebaseConfig } from '../services/firebase';
+import { looksLikeServiceAccountConfig, validateFirebaseConfig } from '../services/firebase';
 import type { FirebaseConfig } from '../services/firebase';
 
 const SETTINGS_STORAGE_KEY = 'ai-budget-settings';
@@ -24,9 +24,75 @@ function getStorage(): StorageLike | null {
   return null;
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function normaliseKey(key: string): string {
+  return key.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+const GENERAL_CONTAINER_KEYS = ['settings', 'configuration', 'config', 'preferences', 'state', 'payload', 'data', 'options'] as const;
+
+function collectGeneralSources(base: Record<string, unknown>): Record<string, unknown>[] {
+  const result: Record<string, unknown>[] = [];
+  const queue: Record<string, unknown>[] = [base];
+  const visited = new Set<Record<string, unknown>>();
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    if (visited.has(current)) {
+      continue;
+    }
+    visited.add(current);
+    result.push(current);
+
+    for (const [key, value] of Object.entries(current)) {
+      const nested = asRecord(value);
+      if (!nested) {
+        continue;
+      }
+      if (GENERAL_CONTAINER_KEYS.some((candidate) => normaliseKey(candidate) === normaliseKey(key))) {
+        queue.push(nested);
+      }
+    }
+  }
+
+  return result;
+}
+
+function collectContainerRecords(
+  base: Record<string, unknown>,
+  containerKeys: readonly string[]
+): Record<string, unknown>[] {
+  const matches: Record<string, unknown>[] = [];
+  const seen = new Set<Record<string, unknown>>();
+  const sources = collectGeneralSources(base);
+
+  for (const source of sources) {
+    for (const [key, value] of Object.entries(source)) {
+      const candidate = asRecord(value);
+      if (!candidate) {
+        continue;
+      }
+      if (containerKeys.some((container) => normaliseKey(container) === normaliseKey(key))) {
+        if (!seen.has(candidate)) {
+          seen.add(candidate);
+          matches.push(candidate);
+        }
+      }
+    }
+  }
+
+  return matches;
+}
+
 function parseJsonObject(value: string): Record<string, unknown> | null {
   try {
-    const parsed = JSON.parse(value);
+    const parsed = JSON.parse(value.trim());
     if (!parsed || typeof parsed !== 'object') {
       return null;
     }
@@ -37,15 +103,35 @@ function parseJsonObject(value: string): Record<string, unknown> | null {
   }
 }
 
+const FIREBASE_NESTED_KEYS = ['config', 'configuration', 'settings', 'options', 'value'] as const;
+
 function toFirebaseConfigCandidate(value: unknown): Record<string, unknown> | null {
   if (!value) {
     return null;
   }
   if (typeof value === 'string') {
-    return parseJsonObject(value);
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+    const parsed = parseJsonObject(trimmed);
+    if (!parsed) {
+      return null;
+    }
+    return toFirebaseConfigCandidate(parsed) ?? parsed;
   }
-  if (typeof value === 'object') {
-    return value as Record<string, unknown>;
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>;
+    if (looksLikeServiceAccountConfig(record)) {
+      return null;
+    }
+    for (const key of FIREBASE_NESTED_KEYS) {
+      const nested = toFirebaseConfigCandidate(record[key]);
+      if (nested) {
+        return nested;
+      }
+    }
+    return record;
   }
   return null;
 }
@@ -68,30 +154,89 @@ function sanitiseFirebaseConfig(value: unknown): FirebaseConfig | undefined {
   return candidate;
 }
 
-const OPENAI_API_KEY_CANDIDATES = ['openAIApiKey', 'openaiApiKey', 'openAiApiKey'] as const;
-const OPENAI_BASE_URL_CANDIDATES = ['openAIBaseUrl', 'openaiBaseUrl'] as const;
-const OPENAI_MODEL_CANDIDATES = ['openAIModel', 'openaiModel'] as const;
-const FIREBASE_CONFIG_CANDIDATES = ['firebaseConfig', 'firebaseConfigJson', 'firebaseConfigJSON', 'firebase'] as const;
+const OPENAI_API_KEY_CANDIDATES = ['openAIApiKey', 'openaiApiKey', 'openAiApiKey', 'openAIKey', 'openaiKey'] as const;
+const OPENAI_BASE_URL_CANDIDATES = ['openAIBaseUrl', 'openaiBaseUrl', 'openAIBaseURL', 'openaiBaseURL'] as const;
+const OPENAI_MODEL_CANDIDATES = ['openAIModel', 'openaiModel', 'openAIModelName', 'openaiModelName'] as const;
+const FIREBASE_CONFIG_CANDIDATES = ['firebaseConfig', 'firebaseConfigJson', 'firebaseConfigJSON', 'firebase', 'firebaseSettings', 'firebaseOptions'] as const;
+const OPENAI_CONTAINER_KEYS = ['openAI', 'openai', 'openAi', 'openAISettings', 'openaiSettings'] as const;
+const FIREBASE_CONTAINER_KEYS = ['firebase', 'firebaseConfig', 'firebaseSettings', 'firebaseOptions'] as const;
+const OPENAI_API_KEY_NESTED_CANDIDATES = ['apiKey', 'key', 'token', 'secret'] as const;
+const OPENAI_BASE_URL_NESTED_CANDIDATES = ['baseUrl', 'baseURL', 'url', 'endpoint'] as const;
+const OPENAI_MODEL_NESTED_CANDIDATES = ['model', 'modelName', 'chatModel'] as const;
+const LOGS_PAGE_SIZE_CANDIDATES = ['integrationLogsPageSize', 'logsPerPage', 'integrationLogsPageSizeSetting'] as const;
 
-function pickString(
+function pickStringFromSource(
   source: Record<string, unknown>,
   keys: readonly string[],
   predicate: (value: string) => boolean = () => true
 ): string | undefined {
-  for (const key of keys) {
-    const value = source[key];
-    if (typeof value === 'string' && predicate(value)) {
+  if (!keys.length) {
+    return undefined;
+  }
+  const normalisedKeys = new Set(keys.map((key) => normaliseKey(key)));
+  for (const [rawKey, rawValue] of Object.entries(source)) {
+    if (typeof rawValue !== 'string') {
+      continue;
+    }
+    const trimmed = rawValue.trim();
+    if (!trimmed) {
+      continue;
+    }
+    if (normalisedKeys.has(normaliseKey(rawKey)) && predicate(trimmed)) {
+      return trimmed;
+    }
+  }
+  return undefined;
+}
+
+function pickStringFromSources(
+  sources: readonly Record<string, unknown>[],
+  keys: readonly string[],
+  predicate: (value: string) => boolean = () => true
+): string | undefined {
+  for (const source of sources) {
+    const value = pickStringFromSource(source, keys, predicate);
+    if (value) {
       return value;
     }
   }
   return undefined;
 }
 
-function pickBoolean(source: Record<string, unknown>, keys: readonly string[]): boolean | undefined {
-  for (const key of keys) {
-    const value = source[key];
-    if (typeof value === 'boolean') {
-      return value;
+function pickBooleanFromSources(
+  sources: readonly Record<string, unknown>[],
+  keys: readonly string[]
+): boolean | undefined {
+  const normalisedKeys = new Set(keys.map((key) => normaliseKey(key)));
+  for (const source of sources) {
+    for (const [rawKey, rawValue] of Object.entries(source)) {
+      if (typeof rawValue === 'boolean' && normalisedKeys.has(normaliseKey(rawKey))) {
+        return rawValue;
+      }
+    }
+  }
+  return undefined;
+}
+
+function pickNumericFromSources(
+  sources: readonly Record<string, unknown>[],
+  keys: readonly string[]
+): number | undefined {
+  const normalisedKeys = new Set(keys.map((key) => normaliseKey(key)));
+  for (const source of sources) {
+    for (const [rawKey, rawValue] of Object.entries(source)) {
+      if (!normalisedKeys.has(normaliseKey(rawKey))) {
+        continue;
+      }
+      if (typeof rawValue === 'number' && Number.isFinite(rawValue)) {
+        return rawValue;
+      }
+      if (typeof rawValue === 'string') {
+        const parsed = Number(rawValue.trim());
+        if (Number.isInteger(parsed)) {
+          return parsed;
+        }
+      }
     }
   }
   return undefined;
@@ -103,29 +248,44 @@ function sanitiseSettings(settings: unknown): StoredSettings | null {
   }
 
   const parsed = settings as Record<string, unknown>;
+  const generalSources = collectGeneralSources(parsed);
+  const openAISources = [
+    ...collectContainerRecords(parsed, OPENAI_CONTAINER_KEYS),
+    ...collectContainerRecords(parsed, ['openAIConfig', 'openaiConfig', 'openAIOptions', 'openaiOptions'])
+  ];
+  const firebaseSources = collectContainerRecords(parsed, FIREBASE_CONTAINER_KEYS);
   const result: StoredSettings = {};
 
-  const openAIApiKey = pickString(parsed, OPENAI_API_KEY_CANDIDATES, (value) => value.length > 0);
+  const openAIApiKey =
+    pickStringFromSources(generalSources, OPENAI_API_KEY_CANDIDATES, (value) => value.length > 0) ??
+    pickStringFromSources(openAISources, OPENAI_API_KEY_NESTED_CANDIDATES, (value) => value.length > 0);
   if (openAIApiKey) {
     result.openAIApiKey = openAIApiKey;
   }
 
-  const openAIBaseUrl = pickString(parsed, OPENAI_BASE_URL_CANDIDATES);
+  const openAIBaseUrl =
+    pickStringFromSources(generalSources, OPENAI_BASE_URL_CANDIDATES) ??
+    pickStringFromSources(openAISources, OPENAI_BASE_URL_NESTED_CANDIDATES);
   if (openAIBaseUrl) {
     result.openAIBaseUrl = openAIBaseUrl;
   }
 
-  const openAIModel = pickString(parsed, OPENAI_MODEL_CANDIDATES);
+  const openAIModel =
+    pickStringFromSources(generalSources, OPENAI_MODEL_CANDIDATES) ??
+    pickStringFromSources(openAISources, OPENAI_MODEL_NESTED_CANDIDATES);
   if (openAIModel) {
     result.openAIModel = openAIModel;
   }
 
-  const autoDetect = pickBoolean(parsed, ['autoDetectFixedExpenses', 'autoDetectRecurringExpenses']);
+  const autoDetect = pickBooleanFromSources(generalSources, [
+    'autoDetectFixedExpenses',
+    'autoDetectRecurringExpenses'
+  ]);
   if (typeof autoDetect === 'boolean') {
     result.autoDetectFixedExpenses = autoDetect;
   }
 
-  const logsPageSize = Number(parsed.integrationLogsPageSize ?? parsed.logsPerPage ?? parsed.integrationLogsPageSizeSetting);
+  const logsPageSize = pickNumericFromSources(generalSources, LOGS_PAGE_SIZE_CANDIDATES);
   if (
     Number.isInteger(logsPageSize) &&
     logsPageSize >= 1 &&
@@ -133,11 +293,26 @@ function sanitiseSettings(settings: unknown): StoredSettings | null {
   ) {
     result.integrationLogsPageSize = logsPageSize;
   }
+
+  const firebaseSourcesToInspect = [...generalSources, ...firebaseSources, ...openAISources];
   let firebaseConfig: FirebaseConfig | undefined;
-  for (const key of FIREBASE_CONFIG_CANDIDATES) {
-    firebaseConfig = sanitiseFirebaseConfig(parsed[key]);
+  for (const source of firebaseSourcesToInspect) {
+    for (const key of FIREBASE_CONFIG_CANDIDATES) {
+      const candidate = sanitiseFirebaseConfig(source[key]);
+      if (candidate) {
+        firebaseConfig = candidate;
+        break;
+      }
+    }
     if (firebaseConfig) {
       break;
+    }
+    if (!firebaseConfig) {
+      const nestedCandidate = sanitiseFirebaseConfig(source);
+      if (nestedCandidate) {
+        firebaseConfig = nestedCandidate;
+        break;
+      }
     }
   }
   if (firebaseConfig) {

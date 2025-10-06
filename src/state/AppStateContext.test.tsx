@@ -75,6 +75,80 @@ describe('AppState store', () => {
     });
   });
 
+  it('migra definições aninhadas em contentores legacy', () => {
+    const nestedPayload = {
+      settings: {
+        openai: {
+          apiKey: 'sk-nested',
+          baseUrl: 'https://nested.openai.test/v1',
+          modelName: 'gpt-4o-mini'
+        },
+        autoDetectRecurringExpenses: true,
+        logsPerPage: '15',
+        firebase: {
+          config: {
+            apiKey: 'nested',
+            authDomain: 'nested.firebaseapp.com',
+            projectId: 'nested-project'
+          }
+        }
+      }
+    };
+
+    window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(nestedPayload));
+
+    const store = createAppStore();
+    const { result } = renderHook(() => useAppState((state) => state), {
+      wrapper: ({ children }) => <AppStateProvider store={store}>{children}</AppStateProvider>
+    });
+
+    expect(result.current.settings.openAIApiKey).toBe('sk-nested');
+    expect(result.current.settings.openAIBaseUrl).toBe('https://nested.openai.test/v1');
+    expect(result.current.settings.openAIModel).toBe('gpt-4o-mini');
+    expect(result.current.settings.autoDetectFixedExpenses).toBe(true);
+    expect(result.current.settings.integrationLogsPageSize).toBe(15);
+    expect(result.current.settings.firebaseConfig).toEqual({
+      apiKey: 'nested',
+      authDomain: 'nested.firebaseapp.com',
+      projectId: 'nested-project'
+    });
+  });
+
+  it('migra nomes alternativos de contentores e propriedades', () => {
+    const alternativePayload = {
+      configuration: {
+        openAISettings: {
+          token: 'sk-alt',
+          endpoint: 'https://alt.openai.test/v1',
+          model: 'gpt-4.1-mini'
+        },
+        firebaseOptions: JSON.stringify({
+          apiKey: 'alt',
+          authDomain: 'alt.firebaseapp.com',
+          projectId: 'alt-project'
+        }),
+        integrationLogsPageSizeSetting: 12
+      }
+    };
+
+    window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(alternativePayload));
+
+    const store = createAppStore();
+    const { result } = renderHook(() => useAppState((state) => state), {
+      wrapper: ({ children }) => <AppStateProvider store={store}>{children}</AppStateProvider>
+    });
+
+    expect(result.current.settings.openAIApiKey).toBe('sk-alt');
+    expect(result.current.settings.openAIBaseUrl).toBe('https://alt.openai.test/v1');
+    expect(result.current.settings.openAIModel).toBe('gpt-4.1-mini');
+    expect(result.current.settings.integrationLogsPageSize).toBe(12);
+    expect(result.current.settings.firebaseConfig).toEqual({
+      apiKey: 'alt',
+      authDomain: 'alt.firebaseapp.com',
+      projectId: 'alt-project'
+    });
+  });
+
   it('substitui coleções através dos setters', () => {
     const store = createAppStore();
     const { result } = renderHook(() => useAppState((state) => state), {
