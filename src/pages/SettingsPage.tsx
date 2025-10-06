@@ -13,7 +13,6 @@ import {
   DEFAULT_OPENAI_MODEL,
   validateOpenAIConnection
 } from '../services/openai';
-import { persistAllIntegrationLogsToFirebase } from '../services/integrationLogs';
 import {
   getIntegrationLogs,
   logFirebaseEvent,
