@@ -701,7 +701,7 @@ function SettingsPage() {
             </div>
           )}
         </div>
-      </motion.section>
+      </motion.form>
     </motion.section>
   );
 }
