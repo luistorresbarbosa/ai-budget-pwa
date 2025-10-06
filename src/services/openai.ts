@@ -189,6 +189,52 @@ function extractJsonFromResponsePayload(payload: any): unknown {
   }
 }
 
+function normaliseAccountHint(raw: unknown): string | undefined {
+  if (typeof raw !== 'string') {
+    return undefined;
+  }
+
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  const upper = trimmed.toUpperCase();
+  const alphanumeric = upper.replace(/[^A-Z0-9]/g, '');
+  if (!alphanumeric) {
+    return undefined;
+  }
+
+  const fullIbanPattern = /^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$/;
+  if (fullIbanPattern.test(alphanumeric)) {
+    return alphanumeric;
+  }
+
+  const ibanPrefixMatch = alphanumeric.match(/^([A-Z]{2}\d{2})/);
+  const trailingDigitsMatch = alphanumeric.match(/(\d{4,})$/);
+  if (ibanPrefixMatch && trailingDigitsMatch) {
+    const tail = trailingDigitsMatch[1].slice(-8);
+    return `${ibanPrefixMatch[1]}-${tail}`;
+  }
+
+  if (trailingDigitsMatch) {
+    const tail = trailingDigitsMatch[1].slice(-8);
+    if (alphanumeric.length > tail.length) {
+      const head = alphanumeric.slice(0, Math.min(4, alphanumeric.length - tail.length));
+      if (head) {
+        return `${head}-${tail}`;
+      }
+    }
+    return tail;
+  }
+
+  if (alphanumeric.length <= 12) {
+    return alphanumeric;
+  }
+
+  return `${alphanumeric.slice(0, 4)}-${alphanumeric.slice(-4)}`;
+}
+
 export async function listOpenAIModels(
   config: OpenAIConnectionConfig,
   signal?: AbortSignal
@@ -589,7 +635,9 @@ export async function extractPdfMetadataWithOpenAI({
                 text:
                   'Analisa o PDF fornecido e devolve um JSON com os campos "sourceType", "amount", "currency", "dueDate", "accountHint", "companyName", "expenseType" e "notes". ' +
                   'sourceType deve ser um de: fatura, recibo ou extracto. amount deve ser número. dueDate deve estar em ISO 8601 se existir. ' +
-                  'Para identificar o accountHint, procura explicitamente por campos etiquetados como "IBAN" e devolve esse valor quando estiver presente. ' +
+                  'Para identificar o accountHint, dá prioridade a IBANs: procura explicitamente por campos etiquetados como "IBAN", remove espaços e devolve-o em maiúsculas. ' +
+                  'Se o IBAN estiver truncado ou mascarado, inclui o prefixo disponível (por exemplo, país + dígitos de controlo) e garante que os últimos 4 a 8 dígitos visíveis são preservados para permitir a associação da conta. ' +
+                  'Quando não existir IBAN, devolve outro identificador curto e estável da conta (ex.: número de conta interno), sem texto adicional. ' +
                   (accountContext
                     ? `A conta de contexto preferencial é "${accountContext}". Considera-a ao interpretar o documento. `
                     : '') +
@@ -661,7 +709,7 @@ export async function extractPdfMetadataWithOpenAI({
         amount: typeof parsed.amount === 'number' ? parsed.amount : undefined,
         currency: typeof parsed.currency === 'string' ? parsed.currency : undefined,
         dueDate: typeof parsed.dueDate === 'string' ? parsed.dueDate : undefined,
-        accountHint: typeof parsed.accountHint === 'string' ? parsed.accountHint : undefined,
+        accountHint: normaliseAccountHint(parsed.accountHint),
         companyName: typeof parsed.companyName === 'string' ? parsed.companyName : undefined,
         expenseType: typeof parsed.expenseType === 'string' ? parsed.expenseType : undefined,
         notes: typeof parsed.notes === 'string' ? parsed.notes : undefined,
