@@ -1,4 +1,5 @@
 import type { FirebaseConfig } from '../services/firebase';
+import { DEFAULT_INTEGRATION_LOGS_PAGE_SIZE } from '../types/integrationLogs';
 
 export type AccountType = 'corrente' | 'poupanca' | 'cartao' | 'outro';
 
@@ -64,4 +65,7 @@ export interface AppSettings {
   openAIModel?: string;
   firebaseConfig?: FirebaseConfig;
   autoDetectFixedExpenses: boolean;
+  integrationLogsPageSize: number;
 }
+
+export const DEFAULT_INTEGRATION_LOGS_PAGE_SIZE_SETTING = DEFAULT_INTEGRATION_LOGS_PAGE_SIZE;
