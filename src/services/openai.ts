@@ -33,6 +33,7 @@ export interface OpenAIDocumentExtraction {
 
 interface ResponsesJsonSchemaFormat {
   type: 'json_schema';
+  name: string;
   json_schema: {
     name: string;
     schema: Record<string, unknown>;
@@ -227,6 +228,7 @@ export async function validateOpenAIConnection(
       text: {
         format: {
           type: 'json_schema',
+          name: 'ping_validation',
           json_schema: {
             name: 'ping_validation',
             schema: {
@@ -309,6 +311,7 @@ export async function extractPdfMetadataWithOpenAI({
         text: {
           format: {
             type: 'json_schema',
+            name: 'document_metadata',
             json_schema: {
               name: 'document_metadata',
               schema: {
