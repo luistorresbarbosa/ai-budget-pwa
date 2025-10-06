@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAppState } from '../state/AppStateContext';
 import {
@@ -13,7 +13,6 @@ import {
   DEFAULT_OPENAI_MODEL,
   validateOpenAIConnection
 } from '../services/openai';
-import { persistAllIntegrationLogsToFirebase } from '../services/integrationLogs';
 import {
   getIntegrationLogs,
   logFirebaseEvent,
@@ -40,46 +39,11 @@ function SettingsPage() {
   const [logsState, setLogsState] = useState<IntegrationLogsState>(() => getIntegrationLogs());
   const openAILogs = logsState.openai;
   const firebaseLogs = logsState.firebase;
-  const firebaseConfigFromSettings = settings.firebaseConfig;
-  const lastSyncedSignature = useRef<string | null>(null);
-  const isSyncingLogs = useRef(false);
-
   useEffect(() => {
     return subscribeToIntegrationLogs((state) => {
       setLogsState(state);
     });
   }, []);
-
-  const logsSignature = useMemo(() => JSON.stringify(logsState), [logsState]);
-  const firebaseConfigSignature = useMemo(
-    () => (firebaseConfigFromSettings ? JSON.stringify(firebaseConfigFromSettings) : null),
-    [firebaseConfigFromSettings]
-  );
-
-  useEffect(() => {
-    if (!firebaseConfigFromSettings || !validateFirebaseConfig(firebaseConfigFromSettings)) {
-      lastSyncedSignature.current = null;
-      return;
-    }
-
-    const signature = `${firebaseConfigSignature ?? ''}|${logsSignature}`;
-    if (lastSyncedSignature.current === signature || isSyncingLogs.current) {
-      return;
-    }
-
-    isSyncingLogs.current = true;
-
-    (async () => {
-      try {
-        await persistAllIntegrationLogsToFirebase(firebaseConfigFromSettings, logsState);
-        lastSyncedSignature.current = signature;
-      } catch (error) {
-        console.error('Não foi possível sincronizar logs existentes com o Firebase.', error);
-      } finally {
-        isSyncingLogs.current = false;
-      }
-    })();
-  }, [firebaseConfigFromSettings, firebaseConfigSignature, logsSignature, logsState]);
 
   const formatLogTimestamp = useMemo(
     () =>
