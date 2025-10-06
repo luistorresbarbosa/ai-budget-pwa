@@ -13,7 +13,6 @@ import {
   DEFAULT_OPENAI_MODEL,
   validateOpenAIConnection
 } from '../services/openai';
-import { persistAllIntegrationLogsToFirebase } from '../services/integrationLogs';
 import {
   getIntegrationLogs,
   logFirebaseEvent,
@@ -49,10 +48,6 @@ function SettingsPage() {
   const [firebaseLogsPage, setFirebaseLogsPage] = useState(1);
   const openAILogs = logsState.openai;
   const firebaseLogs = logsState.firebase;
-  const firebaseConfigFromSettings = settings.firebaseConfig;
-  const lastSyncedSignature = useRef<string | null>(null);
-  const isSyncingLogs = useRef(false);
-
   useEffect(() => {
     return subscribeToIntegrationLogs((state) => {
       setLogsState(state);
