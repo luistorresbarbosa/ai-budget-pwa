@@ -43,3 +43,9 @@ export async function persistAllIntegrationLogsToFirebase(
 }
 
 export { COLLECTION_PATH as INTEGRATION_LOGS_COLLECTION };
+export function getIntegrationLogDocumentId(
+  source: IntegrationLogSource,
+  entry: IntegrationLogEntry
+): string {
+  return buildDocumentId(source, entry);
+}

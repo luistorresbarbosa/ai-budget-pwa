@@ -11,6 +11,18 @@ interface CliOptions {
   accountContext?: string;
 }
 
+function formatBalanceAmount(amount: number, currency?: string): string {
+  const normalisedCurrency = (currency || 'USD').toUpperCase();
+  try {
+    return new Intl.NumberFormat('pt-PT', {
+      style: 'currency',
+      currency: normalisedCurrency
+    }).format(amount);
+  } catch {
+    return `${amount.toFixed(2)} ${normalisedCurrency}`;
+  }
+}
+
 function resolveEnv(): CliOptions {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
@@ -38,6 +50,19 @@ async function runValidation(options: CliOptions) {
 
   if (result.success) {
     console.log(`✓ Ligação validada (${result.model}) em ${result.latencyMs ?? '?'} ms`);
+    if (result.balance) {
+      const available = formatBalanceAmount(result.balance.totalAvailable, result.balance.currency);
+      const granted = formatBalanceAmount(result.balance.totalGranted, result.balance.currency);
+      const used = formatBalanceAmount(result.balance.totalUsed, result.balance.currency);
+      const expires =
+        typeof result.balance.expiresAt === 'number'
+          ? new Date(result.balance.expiresAt * 1000).toLocaleDateString('pt-PT')
+          : null;
+      console.log(`  Saldo disponível: ${available} (limite ${granted}, utilizado ${used}).`);
+      if (expires) {
+        console.log(`  Créditos expiram a ${expires}.`);
+      }
+    }
   } else {
     console.log('⚠︎ A API respondeu mas a validação falhou:');
     console.log(result.message);
