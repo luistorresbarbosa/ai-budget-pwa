@@ -67,6 +67,8 @@ export const mockDocuments: DocumentMetadata[] = [
     currency: 'EUR',
     dueDate: new Date().toISOString(),
     accountHint: 'Conta Corrente',
+    companyName: 'Energia Lisboa',
+    expenseType: 'Luz',
     extractedAt: new Date().toISOString()
   }
 ];

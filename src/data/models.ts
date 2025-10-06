@@ -45,6 +45,8 @@ export interface DocumentMetadata {
   currency?: string;
   dueDate?: string;
   accountHint?: string;
+  companyName?: string;
+  expenseType?: string;
   notes?: string;
   extractedAt?: string;
 }
