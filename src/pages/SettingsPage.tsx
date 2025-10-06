@@ -14,6 +14,7 @@ import {
   listOpenAIModels,
   validateOpenAIConnection
 } from '../services/openai';
+import type { OpenAIBalanceInfo, OpenAIModelSummary } from '../services/openai';
 import {
   getIntegrationLogs,
   logFirebaseEvent,
@@ -94,6 +95,7 @@ function SettingsPage() {
   const [feedback, setFeedback] = useState<string | null>(null);
   const [openAITestFeedback, setOpenAITestFeedback] = useState<string | null>(null);
   const [openAIBalance, setOpenAIBalance] = useState<OpenAIBalanceInfo | null>(null);
+  const [openAIBalanceError, setOpenAIBalanceError] = useState<string | null>(null);
   const [firebaseTestFeedback, setFirebaseTestFeedback] = useState<string | null>(null);
   const [isTestingOpenAI, setIsTestingOpenAI] = useState(false);
   const [isTestingFirebase, setIsTestingFirebase] = useState(false);
@@ -228,6 +230,130 @@ function SettingsPage() {
       return Math.min(firebaseLogsTotalPages, clampedCurrent + 1);
     });
   }, [firebaseLogsTotalPages]);
+
+  const loadOpenAIModels = useCallback(
+    async (abortSignal?: AbortSignal) => {
+      const trimmedKey = apiKey.trim();
+      if (!trimmedKey) {
+        setAvailableOpenAIModels([]);
+        setOpenAIModelsError(null);
+        setIsLoadingOpenAIModels(false);
+        return;
+      }
+
+      setIsLoadingOpenAIModels(true);
+      setOpenAIModelsError(null);
+
+      try {
+        const models = await listOpenAIModels(
+          {
+            apiKey: trimmedKey,
+            baseUrl: openAIBaseUrl.trim() || undefined
+          },
+          abortSignal
+        );
+
+        if (abortSignal?.aborted) {
+          return;
+        }
+
+        setAvailableOpenAIModels(models);
+        setOpenAIModel((current) => {
+          if (current && models.some((model) => model.id === current)) {
+            return current;
+          }
+          const preferred =
+            models.find((model) => model.id === DEFAULT_OPENAI_MODEL) ?? models[0] ?? null;
+          return preferred ? preferred.id : current || DEFAULT_OPENAI_MODEL;
+        });
+      } catch (error) {
+        if (abortSignal?.aborted) {
+          return;
+        }
+        const message =
+          error instanceof Error ? error.message : 'Não foi possível carregar a lista de modelos.';
+        setOpenAIModelsError(message);
+        setAvailableOpenAIModels([]);
+      } finally {
+        if (!abortSignal?.aborted) {
+          setIsLoadingOpenAIModels(false);
+        }
+      }
+    },
+    [apiKey, openAIBaseUrl]
+  );
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadOpenAIModels(controller.signal);
+    return () => {
+      controller.abort();
+    };
+  }, [loadOpenAIModels]);
+
+  useEffect(() => {
+    setOpenAIBalance(null);
+    setOpenAIBalanceError(null);
+  }, [apiKey, openAIBaseUrl]);
+
+  const openAIModelOptions = useMemo(() => {
+    const options = availableOpenAIModels.map((model) => ({
+      value: model.id,
+      label: model.id
+    }));
+
+    if (openAIModel && !options.some((option) => option.value === openAIModel)) {
+      options.unshift({
+        value: openAIModel,
+        label: `${openAIModel} (personalizado)`
+      });
+    }
+
+    if (options.length === 0) {
+      options.push({ value: DEFAULT_OPENAI_MODEL, label: DEFAULT_OPENAI_MODEL });
+    }
+
+    return options;
+  }, [availableOpenAIModels, openAIModel]);
+
+  const formattedOpenAIBalance = useMemo(() => {
+    if (!openAIBalance) {
+      return null;
+    }
+    const currency = (openAIBalance.currency || 'USD').toUpperCase();
+    const formatAmount = (amount: number) => {
+      try {
+        return new Intl.NumberFormat('pt-PT', {
+          style: 'currency',
+          currency
+        }).format(amount);
+      } catch {
+        return `${amount.toFixed(2)} ${currency}`;
+      }
+    };
+
+    const available = formatAmount(openAIBalance.totalAvailable);
+    const granted = formatAmount(openAIBalance.totalGranted);
+    const used = formatAmount(openAIBalance.totalUsed);
+
+    const expiry =
+      typeof openAIBalance.expiresAt === 'number'
+        ? new Date(openAIBalance.expiresAt * 1000).toLocaleDateString('pt-PT')
+        : null;
+
+    return {
+      available,
+      granted,
+      used,
+      expiry
+    };
+  }, [openAIBalance]);
+
+  const handleRefreshOpenAIModels = useCallback(() => {
+    void loadOpenAIModels();
+  }, [loadOpenAIModels]);
+
+  const hasOpenAIApiKey = apiKey.trim().length > 0;
 
   const handleLogsPerPageChange = useCallback(
     (event: ChangeEvent<HTMLSelectElement>) => {
@@ -405,6 +531,7 @@ function SettingsPage() {
     setIsTestingOpenAI(true);
     setOpenAITestFeedback('A validar ligação à OpenAI…');
     setOpenAIBalance(null);
+    setOpenAIBalanceError(null);
     logOpenAIEvent('A validar ligação à OpenAI…');
     try {
       const result = await validateOpenAIConnection(
@@ -422,6 +549,7 @@ function SettingsPage() {
         }
         if (result.balance) {
           setOpenAIBalance(result.balance);
+          setOpenAIBalanceError(null);
           const currency = (result.balance.currency || 'USD').toUpperCase();
           const formattedAvailable = (() => {
             try {
@@ -434,18 +562,25 @@ function SettingsPage() {
             }
           })();
           messageParts.push(`Saldo disponível: ${formattedAvailable}.`);
+        } else if (result.balanceError) {
+          setOpenAIBalanceError(result.balanceError);
+          messageParts.push(result.balanceError);
+        } else {
+          setOpenAIBalanceError(null);
         }
         setOpenAITestFeedback(messageParts.join(' '));
         logOpenAIEvent(`Ligação validada com sucesso. Modelo: ${result.model}.`);
       } else {
         setOpenAITestFeedback(result.message);
         setOpenAIBalance(null);
+        setOpenAIBalanceError(null);
         logOpenAIEvent(`Falha na validação da ligação: ${result.message}`);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erro desconhecido ao contactar a OpenAI.';
       setOpenAITestFeedback(`Falha ao validar ligação: ${message}`);
       setOpenAIBalance(null);
+      setOpenAIBalanceError(null);
       logOpenAIEvent(`Erro ao contactar a OpenAI: ${message}`);
     } finally {
       setIsTestingOpenAI(false);
@@ -622,6 +757,20 @@ function SettingsPage() {
                       : ''}
                   </p>
                 </motion.div>
+              )}
+            </AnimatePresence>
+            <AnimatePresence>
+              {openAIBalanceError && (
+                <motion.p
+                  key={openAIBalanceError}
+                  initial={{ opacity: 0, y: -6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={{ duration: 0.25 }}
+                  className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-700 shadow-sm"
+                >
+                  {openAIBalanceError}
+                </motion.p>
               )}
             </AnimatePresence>
           </div>
