@@ -14,6 +14,20 @@ let firebaseApp: FirebaseApp | null = null;
 let firestoreDb: Firestore | null = null;
 let cachedConfig: FirebaseConfig | null = null;
 
+export function looksLikeServiceAccountConfig(config: unknown): boolean {
+  if (!config || typeof config !== 'object') {
+    return false;
+  }
+  const candidate = config as Record<string, unknown>;
+  if (candidate.type === 'service_account') {
+    return true;
+  }
+  const hasPrivateKey = typeof candidate.private_key === 'string';
+  const hasClientEmail = typeof candidate.client_email === 'string';
+  const hasUniverseDomain = typeof candidate.universe_domain === 'string';
+  return Boolean(hasPrivateKey && hasClientEmail && hasUniverseDomain);
+}
+
 function configsAreEqual(a: FirebaseConfig, b: FirebaseConfig): boolean {
   return (
     a.apiKey === b.apiKey &&

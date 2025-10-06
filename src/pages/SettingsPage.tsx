@@ -1,7 +1,12 @@
 import { FormEvent, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAppState } from '../state/AppStateContext';
-import { initializeFirebase, resetFirebase, validateFirebaseConfig } from '../services/firebase';
+import {
+  initializeFirebase,
+  looksLikeServiceAccountConfig,
+  resetFirebase,
+  validateFirebaseConfig
+} from '../services/firebase';
 import {
   DEFAULT_OPENAI_BASE_URL,
   DEFAULT_OPENAI_MODEL,
@@ -27,6 +32,12 @@ function SettingsPage() {
     try {
       const normalizedConfig = firebaseConfig.trim();
       const parsed = normalizedConfig ? JSON.parse(normalizedConfig) : undefined;
+      if (parsed && looksLikeServiceAccountConfig(parsed)) {
+        setFeedback(
+          'O JSON fornecido parece ser uma credencial de Service Account. Obtenha a configuração Web do Firebase (apiKey, authDomain, projectId, …) na consola do Firebase.'
+        );
+        return;
+      }
       if (parsed && !validateFirebaseConfig(parsed)) {
         setFeedback('Configuração Firebase incompleta.');
         return;
