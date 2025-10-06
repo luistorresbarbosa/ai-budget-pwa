@@ -33,11 +33,9 @@ export interface OpenAIDocumentExtraction {
 
 interface ResponsesJsonSchemaFormat {
   type: 'json_schema';
-  name: string;
-  json_schema: {
-    name: string;
-    schema: Record<string, unknown>;
-  };
+  name?: string;
+  schema: Record<string, unknown>;
+  strict?: boolean;
 }
 
 interface ResponsesTextConfig {
@@ -229,16 +227,13 @@ export async function validateOpenAIConnection(
         format: {
           type: 'json_schema',
           name: 'ping_validation',
-          json_schema: {
-            name: 'ping_validation',
-            schema: {
-              type: 'object',
-              properties: {
-                reply: { type: 'string', enum: ['pong'] }
-              },
-              required: ['reply'],
-              additionalProperties: false
-            }
+          schema: {
+            type: 'object',
+            properties: {
+              reply: { type: 'string', enum: ['pong'] }
+            },
+            required: ['reply'],
+            additionalProperties: false
           }
         }
       }
@@ -312,34 +307,31 @@ export async function extractPdfMetadataWithOpenAI({
           format: {
             type: 'json_schema',
             name: 'document_metadata',
-            json_schema: {
-              name: 'document_metadata',
-              schema: {
-                type: 'object',
-                properties: {
-                  sourceType: {
-                    type: ['string', 'null'],
-                    enum: ['fatura', 'recibo', 'extracto', null]
-                  },
-                  amount: {
-                    type: ['number', 'null']
-                  },
-                  currency: {
-                    type: ['string', 'null']
-                  },
-                  dueDate: {
-                    type: ['string', 'null']
-                  },
-                  accountHint: {
-                    type: ['string', 'null']
-                  },
-                  notes: {
-                    type: ['string', 'null']
-                  }
+            schema: {
+              type: 'object',
+              properties: {
+                sourceType: {
+                  type: ['string', 'null'],
+                  enum: ['fatura', 'recibo', 'extracto', null]
                 },
-                required: ['sourceType', 'amount', 'currency', 'dueDate', 'accountHint', 'notes'],
-                additionalProperties: false
-              }
+                amount: {
+                  type: ['number', 'null']
+                },
+                currency: {
+                  type: ['string', 'null']
+                },
+                dueDate: {
+                  type: ['string', 'null']
+                },
+                accountHint: {
+                  type: ['string', 'null']
+                },
+                notes: {
+                  type: ['string', 'null']
+                }
+              },
+              required: ['sourceType', 'amount', 'currency', 'dueDate', 'accountHint', 'notes'],
+              additionalProperties: false
             }
           }
         }
