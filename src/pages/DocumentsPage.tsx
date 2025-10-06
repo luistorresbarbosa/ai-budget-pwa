@@ -19,6 +19,11 @@ import { persistDocumentMetadata, removeDocumentMetadata } from '../services/doc
 import { validateFirebaseConfig } from '../services/firebase';
 import { persistExpense } from '../services/expenses';
 import { persistTimelineEntry } from '../services/timeline';
+import {
+  deriveExpenseFromDocument,
+  deriveTimelineEntryFromExpense,
+  findAccountByHint
+} from '../services/expenseDerivation';
 
 interface UploadFeedback {
   type: 'success' | 'error' | 'info';
@@ -31,6 +36,7 @@ const feedbackStyles: Record<UploadFeedback['type'], string> = {
   info: 'rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 shadow-sm'
 };
 
+function DocumentsPage() {
 const PAGE_SIZE_OPTIONS = [5, 10, 20] as const;
 
 const ACCOUNT_IDENTIFIER_KEYS = ['iban', 'ibanNumber', 'accountNumber', 'number', 'identifier'] as const;
@@ -208,7 +214,7 @@ function deriveTimelineEntryFromExpense(
   return entry;
 }
 
-function DocumentsPage() {
+
   const documents = useAppState((state) => state.documents);
   const expenses = useAppState((state) => state.expenses);
   const timelineEntries = useAppState((state) => state.timeline);

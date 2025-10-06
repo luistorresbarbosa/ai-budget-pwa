@@ -2,10 +2,20 @@ import { NavLink, useLocation } from 'react-router-dom';
 import type { PropsWithChildren } from 'react';
 import { motion } from 'framer-motion';
 import type { LucideIcon } from 'lucide-react';
-import { CalendarDays, Files, ReceiptText, RefreshCcw, Settings, Wallet2 } from 'lucide-react';
+import {
+  CalendarDays,
+  Files,
+  ReceiptText,
+  RefreshCcw,
+  Settings,
+  UploadCloud,
+  Wallet2,
+  PiggyBank
+} from 'lucide-react';
 
 const links: Array<{ to: string; label: string; icon: LucideIcon }> = [
   { to: '/documents', label: 'Documentos', icon: Files },
+  { to: '/accounts', label: 'Contas', icon: PiggyBank },
   { to: '/transfers', label: 'Transferências', icon: RefreshCcw },
   { to: '/timeline', label: 'Timeline', icon: CalendarDays },
   { to: '/expenses', label: 'Despesas', icon: Wallet2 },
