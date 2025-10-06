@@ -1,6 +1,17 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Building2, CalendarDays, Euro, FileText, Loader2, Trash2, UploadCloud } from 'lucide-react';
+import {
+  Building2,
+  CalendarDays,
+  Clock,
+  Euro,
+  FileText,
+  Landmark,
+  Loader2,
+  Tag,
+  Trash2,
+  UploadCloud
+} from 'lucide-react';
 import { useAppState } from '../state/AppStateContext';
 import type { Account, DocumentMetadata, Expense, TimelineEntry } from '../data/models';
 import { extractPdfMetadata, isPdfFile } from '../services/pdfParser';
@@ -19,6 +30,8 @@ const feedbackStyles: Record<UploadFeedback['type'], string> = {
   error: 'rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 shadow-sm',
   info: 'rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 shadow-sm'
 };
+
+const PAGE_SIZE_OPTIONS = [5, 10, 20] as const;
 
 const ACCOUNT_IDENTIFIER_KEYS = ['iban', 'ibanNumber', 'accountNumber', 'number', 'identifier'] as const;
 
@@ -160,8 +173,9 @@ function deriveExpenseFromDocument(
     id: existingExpense?.id ?? `doc-exp-${metadata.id}`,
     documentId: metadata.id,
     accountId: resolvedAccountId,
-    description: existingExpense?.description ?? humaniseDocumentName(metadata.originalName),
-    category: existingExpense?.category ?? 'Outros',
+    description:
+      existingExpense?.description ?? metadata.companyName ?? humaniseDocumentName(metadata.originalName),
+    category: existingExpense?.category ?? metadata.expenseType ?? 'Outros',
     amount: resolvedAmount,
     currency: metadata.currency ?? existingExpense?.currency ?? 'EUR',
     dueDate: resolvedDueDate,
@@ -194,7 +208,7 @@ function deriveTimelineEntryFromExpense(
   return entry;
 }
 
-function UploadPage() {
+function DocumentsPage() {
   const documents = useAppState((state) => state.documents);
   const expenses = useAppState((state) => state.expenses);
   const timelineEntries = useAppState((state) => state.timeline);
@@ -207,6 +221,30 @@ function UploadPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<UploadFeedback | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<(typeof PAGE_SIZE_OPTIONS)[number]>(PAGE_SIZE_OPTIONS[0]);
+
+  const sortedDocuments = useMemo(() => {
+    return [...documents].sort((a, b) => {
+      const aDate = new Date(a.uploadDate).getTime() || 0;
+      const bDate = new Date(b.uploadDate).getTime() || 0;
+      return bDate - aDate;
+    });
+  }, [documents]);
+
+  useEffect(() => {
+    setPage((current) => {
+      const maxPage = Math.max(1, Math.ceil(sortedDocuments.length / pageSize));
+      return Math.min(current, maxPage);
+    });
+  }, [pageSize, sortedDocuments.length]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedDocuments.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const paginatedDocuments = sortedDocuments.slice(
+    (currentPage - 1) * pageSize,
+    (currentPage - 1) * pageSize + pageSize
+  );
 
   async function handleUpload(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -267,12 +305,15 @@ function UploadPage() {
         currency: extraction.currency,
         dueDate: extraction.dueDate,
         accountHint: extraction.accountHint,
+        companyName: extraction.companyName ?? existingDocument?.companyName,
+        expenseType: extraction.expenseType ?? existingDocument?.expenseType,
         notes: extraction.notes,
         extractedAt: new Date().toISOString()
       };
 
       await persistDocumentMetadata(metadata, settings.firebaseConfig);
       addDocument(metadata);
+      setPage(1);
 
       const existingExpense = expenses.find((expense) => expense.documentId === metadata.id);
       const derivedExpense = deriveExpenseFromDocument(metadata, accounts, existingExpense);
@@ -346,9 +387,9 @@ function UploadPage() {
       className="space-y-8"
     >
       <header className="space-y-2">
-        <h1 className="text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl">Upload de PDFs</h1>
+        <h1 className="text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl">Documentos</h1>
         <p className="max-w-2xl text-sm text-slate-500 sm:text-base">
-          Envie faturas, recibos ou extractos para extrair automaticamente os dados relevantes.
+          Carregue faturas, recibos ou extractos e consulte o histórico completo com todos os detalhes extraídos.
         </p>
       </header>
 
@@ -385,14 +426,55 @@ function UploadPage() {
       </AnimatePresence>
 
       <div className="space-y-4">
-        <div className="flex items-center justify-between gap-2">
-          <h2 className="text-lg font-semibold text-slate-900 sm:text-xl">Histórico de documentos</h2>
-          <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-500 shadow-sm">
-            {documents.length} registo{documents.length === 1 ? '' : 's'}
-          </span>
+        <div className="flex flex-col gap-3 rounded-3xl border border-slate-200 bg-white/70 p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-1">
+            <h2 className="text-lg font-semibold text-slate-900 sm:text-xl">Histórico de documentos</h2>
+            <p className="text-xs text-slate-500">
+              Página {currentPage} de {totalPages} · {sortedDocuments.length} registo
+              {sortedDocuments.length === 1 ? '' : 's'}
+            </p>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+            <label className="flex items-center gap-2 text-xs font-medium text-slate-500">
+              Por página
+              <select
+                className="rounded-xl border border-slate-200 bg-white px-3 py-1 text-sm text-slate-700 shadow-sm focus:border-slate-300 focus:outline-none"
+                value={pageSize}
+                onChange={(event) => {
+                  const value = Number.parseInt(event.target.value, 10) as (typeof PAGE_SIZE_OPTIONS)[number];
+                  setPageSize(value);
+                  setPage(1);
+                }}
+              >
+                {PAGE_SIZE_OPTIONS.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setPage((current) => Math.max(1, current - 1))}
+                disabled={currentPage === 1 || sortedDocuments.length === 0}
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-1 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400 disabled:opacity-60"
+              >
+                Anterior
+              </button>
+              <button
+                type="button"
+                onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+                disabled={currentPage === totalPages || sortedDocuments.length === 0}
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-1 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400 disabled:opacity-60"
+              >
+                Seguinte
+              </button>
+            </div>
+          </div>
         </div>
         <div className="grid gap-3">
-          {documents.map((doc) => {
+          {paginatedDocuments.map((doc) => {
             const matchedAccount = findAccountByHint(doc.accountHint, accounts);
             return (
               <motion.article
@@ -402,20 +484,43 @@ function UploadPage() {
                 animate={{ opacity: 1, y: 0 }}
                 className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-slate-300 hover:shadow-md"
               >
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <p className="flex items-center gap-2 text-sm font-medium text-slate-900">
-                      <FileText className="h-4 w-4 text-slate-400" />
-                      {doc.originalName}
-                    </p>
-                    <small className="text-xs uppercase tracking-wide text-slate-400">
-                      {new Date(doc.uploadDate).toLocaleString('pt-PT')} · {doc.sourceType}
-                    </small>
+                <div className="flex flex-col gap-4">
+                  <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="flex items-center gap-2 text-sm font-medium text-slate-900">
+                        <FileText className="h-4 w-4 text-slate-400" />
+                        {doc.originalName}
+                      </p>
+                      <small className="text-xs uppercase tracking-wide text-slate-400">
+                        {new Date(doc.uploadDate).toLocaleString('pt-PT')} · {doc.sourceType}
+                      </small>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(doc.id)}
+                      disabled={deletingId === doc.id}
+                      className="inline-flex items-center gap-2 self-start rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 disabled:opacity-60"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      {deletingId === doc.id ? 'A remover…' : 'Remover'}
+                    </button>
                   </div>
                   <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
-                    {doc.accountHint && (
+                    {doc.companyName && (
                       <span className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
                         <Building2 className="h-4 w-4 text-slate-400" />
+                        {doc.companyName}
+                      </span>
+                    )}
+                    {doc.expenseType && (
+                      <span className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
+                        <Tag className="h-4 w-4 text-slate-400" />
+                        {doc.expenseType}
+                      </span>
+                    )}
+                    {doc.accountHint && (
+                      <span className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
+                        <Landmark className="h-4 w-4 text-slate-400" />
                         {matchedAccount ? matchedAccount.name : doc.accountHint}
                       </span>
                     )}
@@ -431,22 +536,19 @@ function UploadPage() {
                         Vencimento: {new Date(doc.dueDate).toLocaleDateString('pt-PT')}
                       </span>
                     )}
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(doc.id)}
-                      disabled={deletingId === doc.id}
-                      className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 disabled:opacity-60"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                      {deletingId === doc.id ? 'A remover…' : 'Remover'}
-                    </button>
+                    {doc.extractedAt && (
+                      <span className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
+                        <Clock className="h-4 w-4 text-slate-400" />
+                        Extraído: {new Date(doc.extractedAt).toLocaleString('pt-PT')}
+                      </span>
+                    )}
                   </div>
+                  {doc.notes && <p className="text-sm text-slate-600">{doc.notes}</p>}
                 </div>
-                {doc.notes && <p className="mt-3 text-sm text-slate-600">{doc.notes}</p>}
               </motion.article>
             );
           })}
-          {documents.length === 0 && (
+          {sortedDocuments.length === 0 && (
             <div className="rounded-2xl border border-dashed border-slate-300 bg-white/70 p-6 text-sm text-slate-500">
               Ainda não carregou documentos.
             </div>
@@ -457,4 +559,4 @@ function UploadPage() {
   );
 }
 
-export default UploadPage;
+export default DocumentsPage;
