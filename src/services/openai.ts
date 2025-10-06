@@ -169,7 +169,7 @@ async function uploadFileToOpenAI(
   const baseUrl = resolveBaseUrl(config.baseUrl);
   const formData = new FormData();
   formData.append('purpose', 'assistants');
-  formData.append('file', file);
+  formData.append('file', file, file.name);
 
   logOpenAIEvent('→ POST /files', {
     details: {
