@@ -46,6 +46,35 @@ describe('AppState store', () => {
     });
   });
 
+  it('migra definições antigas com chaves legacy', () => {
+    const legacyPayload = {
+      openaiApiKey: 'sk-legacy',
+      openaiBaseUrl: 'https://legacy.openai.test/v1',
+      openaiModel: 'gpt-3.5-turbo',
+      autoDetectRecurringExpenses: false,
+      logsPerPage: '15',
+      firebaseConfigJson: JSON.stringify({ apiKey: 'legacy', authDomain: 'legacy.firebaseapp.com', projectId: 'legacy-project' })
+    };
+
+    window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(legacyPayload));
+
+    const store = createAppStore();
+    const { result } = renderHook(() => useAppState((state) => state), {
+      wrapper: ({ children }) => <AppStateProvider store={store}>{children}</AppStateProvider>
+    });
+
+    expect(result.current.settings.openAIApiKey).toBe('sk-legacy');
+    expect(result.current.settings.openAIBaseUrl).toBe('https://legacy.openai.test/v1');
+    expect(result.current.settings.openAIModel).toBe('gpt-3.5-turbo');
+    expect(result.current.settings.autoDetectFixedExpenses).toBe(false);
+    expect(result.current.settings.integrationLogsPageSize).toBe(15);
+    expect(result.current.settings.firebaseConfig).toEqual({
+      apiKey: 'legacy',
+      authDomain: 'legacy.firebaseapp.com',
+      projectId: 'legacy-project'
+    });
+  });
+
   it('substitui coleções através dos setters', () => {
     const store = createAppStore();
     const { result } = renderHook(() => useAppState((state) => state), {
