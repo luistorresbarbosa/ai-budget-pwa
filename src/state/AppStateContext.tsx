@@ -15,6 +15,7 @@ import type {
   TimelineEntry,
   Transfer
 } from '../data/models';
+import { DEFAULT_INTEGRATION_LOGS_PAGE_SIZE_SETTING } from '../data/models';
 import { loadPersistedSettings, persistSettings } from './settingsPersistence';
 
 export interface AppState {
@@ -39,7 +40,8 @@ export interface AppState {
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
-  autoDetectFixedExpenses: true
+  autoDetectFixedExpenses: true,
+  integrationLogsPageSize: DEFAULT_INTEGRATION_LOGS_PAGE_SIZE_SETTING
 };
 
 function resolveInitialSettings(initialState?: Partial<AppState>): AppSettings {
