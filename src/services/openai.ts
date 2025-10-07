@@ -1,3 +1,4 @@
+import type { RecurringExpenseCandidate } from '../data/models';
 import { logOpenAIEvent } from './integrationLogger';
 
 const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
@@ -160,6 +161,7 @@ export interface OpenAIDocumentExtraction {
   expenseType?: string;
   notes?: string;
   rawResponse?: unknown;
+  recurringExpenses?: RecurringExpenseCandidate[];
 }
 
 interface ResponsesJsonSchemaFormat {
@@ -307,6 +309,55 @@ function normaliseAccountHint(raw: unknown): string | undefined {
   }
 
   return `${alphanumeric.slice(0, 4)}-${alphanumeric.slice(-4)}`;
+}
+
+function normaliseRecurringExpenses(raw: unknown): RecurringExpenseCandidate[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+
+  const candidates: RecurringExpenseCandidate[] = [];
+
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') {
+      continue;
+    }
+
+    const candidate = entry as Record<string, unknown>;
+    const descriptionRaw = candidate.description;
+    if (typeof descriptionRaw !== 'string') {
+      continue;
+    }
+
+    const description = descriptionRaw.trim();
+    if (!description) {
+      continue;
+    }
+
+    const averageAmount = typeof candidate.averageAmount === 'number' ? candidate.averageAmount : undefined;
+    const currency = typeof candidate.currency === 'string' ? candidate.currency : undefined;
+    const dayOfMonth = typeof candidate.dayOfMonth === 'number' ? candidate.dayOfMonth : undefined;
+    const accountHint = typeof candidate.accountHint === 'string' ? candidate.accountHint : undefined;
+    const notes = typeof candidate.notes === 'string' ? candidate.notes : undefined;
+
+    const monthsObserved = Array.isArray(candidate.monthsObserved)
+      ? (candidate.monthsObserved as unknown[])
+          .map((month) => (typeof month === 'string' ? month.trim() : ''))
+          .filter((month): month is string => month.length > 0)
+      : undefined;
+
+    candidates.push({
+      description,
+      averageAmount,
+      currency,
+      dayOfMonth,
+      accountHint,
+      monthsObserved,
+      notes
+    });
+  }
+
+  return candidates;
 }
 
 export async function listOpenAIModels(
@@ -719,11 +770,15 @@ export async function extractPdfMetadataWithOpenAI({
               {
                 type: 'input_text',
                 text:
-                  'Analisa o PDF fornecido e devolve um JSON com os campos "sourceType", "amount", "currency", "dueDate", "accountHint", "companyName", "expenseType" e "notes". ' +
+                  'Analisa o PDF fornecido e devolve um JSON com os campos "sourceType", "amount", "currency", "dueDate", "accountHint", "companyName", "expenseType", "notes" e "recurringExpenses". ' +
+                  'Identifica claramente se o documento é um extracto bancário ou uma fatura/recibo e preenche sourceType com essa informação. ' +
                   'sourceType deve ser um de: fatura, recibo ou extracto. amount deve ser número. dueDate deve estar em ISO 8601 se existir. ' +
                   'Para identificar o accountHint, dá prioridade a IBANs: procura explicitamente por campos etiquetados como "IBAN", remove espaços e devolve-o em maiúsculas. ' +
                   'Se o IBAN estiver truncado ou mascarado, inclui o prefixo disponível (por exemplo, país + dígitos de controlo) e garante que os últimos 4 a 8 dígitos visíveis são preservados para permitir a associação da conta. ' +
                   'Quando não existir IBAN, devolve outro identificador curto e estável da conta (ex.: número de conta interno), sem texto adicional. ' +
+                  'Quando o documento for um extracto, analisa os movimentos e devolve em recurringExpenses apenas as despesas fixas que se repetem em pelo menos dois meses diferentes com a mesma descrição. ' +
+                  'Cada elemento de recurringExpenses deve incluir description, averageAmount (média dos valores observados), currency, dayOfMonth (dia mais provável do débito), accountHint, monthsObserved (lista de meses no formato YYYY-MM) e notes com detalhes relevantes. ' +
+                  'Quando não se tratar de um extracto, devolve recurringExpenses como lista vazia. ' +
                   (accountContext
                     ? `A conta de contexto preferencial é "${accountContext}". Considera-a ao interpretar o documento. `
                     : '') +
@@ -767,6 +822,34 @@ export async function extractPdfMetadataWithOpenAI({
                 },
                 notes: {
                   type: ['string', 'null']
+                },
+                recurringExpenses: {
+                  type: ['array', 'null'],
+                  items: {
+                    type: 'object',
+                    properties: {
+                      description: { type: ['string', 'null'] },
+                      averageAmount: { type: ['number', 'null'] },
+                      currency: { type: ['string', 'null'] },
+                      dayOfMonth: { type: ['number', 'null'] },
+                      accountHint: { type: ['string', 'null'] },
+                      monthsObserved: {
+                        type: ['array', 'null'],
+                        items: { type: ['string', 'null'] }
+                      },
+                      notes: { type: ['string', 'null'] }
+                    },
+                    required: [
+                      'description',
+                      'averageAmount',
+                      'currency',
+                      'dayOfMonth',
+                      'accountHint',
+                      'monthsObserved',
+                      'notes'
+                    ],
+                    additionalProperties: false
+                  }
                 }
               },
               required: [
@@ -777,7 +860,8 @@ export async function extractPdfMetadataWithOpenAI({
                 'accountHint',
                 'companyName',
                 'expenseType',
-                'notes'
+                'notes',
+                'recurringExpenses'
               ],
               additionalProperties: false
             }
@@ -799,6 +883,7 @@ export async function extractPdfMetadataWithOpenAI({
         companyName: typeof parsed.companyName === 'string' ? parsed.companyName : undefined,
         expenseType: typeof parsed.expenseType === 'string' ? parsed.expenseType : undefined,
         notes: typeof parsed.notes === 'string' ? parsed.notes : undefined,
+        recurringExpenses: normaliseRecurringExpenses(parsed.recurringExpenses),
         rawResponse: payload
       };
     }
