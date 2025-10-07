@@ -166,7 +166,7 @@ export function deriveTimelineEntryFromExpense(
   }
 
   const entry: TimelineEntry = {
-    id: existingEntry?.id ?? `doc-timeline-${expense.documentId ?? expense.id}`,
+    id: existingEntry?.id ?? `doc-timeline-${expense.id}`,
     date: expense.dueDate,
     type: 'despesa',
     description: existingEntry?.description ?? expense.description,

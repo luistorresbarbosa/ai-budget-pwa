@@ -73,6 +73,11 @@ export default function AccountsPage() {
     [accounts]
   );
 
+  const pendingValidation = useMemo(
+    () => accounts.filter((account) => account.validationStatus === 'validacao-manual').length,
+    [accounts]
+  );
+
   const handleEdit = (account: Account) => {
     setEditingId(account.id);
     setFormState({
@@ -115,12 +120,16 @@ export default function AccountsPage() {
       return;
     }
 
+    const previousAccount = editingId ? accounts.find((item) => item.id === editingId) : undefined;
+
     const account: Account = {
       id: editingId ?? `acc-${crypto.randomUUID()}`,
       name: trimmedName,
       type: formState.type,
       balance: Number(parsedBalance.toFixed(2)),
-      currency: normaliseCurrency(formState.currency || 'EUR')
+      currency: normaliseCurrency(formState.currency || 'EUR'),
+      metadata: previousAccount?.metadata,
+      validationStatus: previousAccount?.validationStatus ?? 'validada'
     };
 
     setIsSaving(true);
@@ -309,9 +318,16 @@ export default function AccountsPage() {
               {accounts.length === 0
                 ? 'Nenhuma conta registada'
                 : accounts.length === 1
-                  ? '1 conta sincronizada'
-                  : `${accounts.length} contas sincronizadas`}
+                    ? '1 conta sincronizada'
+                    : `${accounts.length} contas sincronizadas`}
             </p>
+            {pendingValidation > 0 && (
+              <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-amber-600">
+                {pendingValidation === 1
+                  ? '1 conta aguarda validação manual'
+                  : `${pendingValidation} contas aguardam validação manual`}
+              </p>
+            )}
           </div>
           <p className="text-xs text-slate-500">
             Organize as suas contas para facilitar a classificação de despesas e transferências.
@@ -345,6 +361,11 @@ export default function AccountsPage() {
                   <div>
                     <p className="text-base font-semibold text-slate-900">{account.name}</p>
                     <p className="text-xs uppercase tracking-wide text-slate-400">{typeLabels[account.type]}</p>
+                    {account.validationStatus === 'validacao-manual' && (
+                      <span className="mt-1 inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-700">
+                        Validar conta
+                      </span>
+                    )}
                   </div>
                 </div>
                 <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">

@@ -17,13 +17,8 @@ import type { DocumentMetadata } from '../data/models';
 import { extractPdfMetadata, isPdfFile } from '../services/pdfParser';
 import { persistDocumentMetadata, removeDocumentMetadata } from '../services/documents';
 import { validateFirebaseConfig } from '../services/firebase';
-import { persistExpense } from '../services/expenses';
-import { persistTimelineEntry } from '../services/timeline';
-import {
-  deriveExpenseFromDocument,
-  deriveTimelineEntryFromExpense,
-  findAccountByHint
-} from '../services/expenseDerivation';
+import { processDocumentForDerivedEntities } from '../services/documentAutomation';
+import { findAccountByHint } from '../services/expenseDerivation';
 
 interface UploadFeedback {
   type: 'success' | 'error' | 'info';
@@ -43,6 +38,7 @@ function DocumentsPage() {
   const expenses = useAppState((state) => state.expenses);
   const timelineEntries = useAppState((state) => state.timeline);
   const accounts = useAppState((state) => state.accounts);
+  const addAccount = useAppState((state) => state.addAccount);
   const addDocument = useAppState((state) => state.addDocument);
   const addExpense = useAppState((state) => state.addExpense);
   const removeDocument = useAppState((state) => state.removeDocument);
@@ -138,33 +134,31 @@ function DocumentsPage() {
         companyName: extraction.companyName ?? existingDocument?.companyName,
         expenseType: extraction.expenseType ?? existingDocument?.expenseType,
         notes: extraction.notes,
-        extractedAt: new Date().toISOString()
+        extractedAt: new Date().toISOString(),
+        recurringExpenses:
+          extraction.sourceType === 'extracto'
+            ? extraction.recurringExpenses ?? []
+            : existingDocument?.recurringExpenses
       };
 
       await persistDocumentMetadata(metadata, settings.firebaseConfig);
       addDocument(metadata);
       setPage(1);
 
-      const existingExpense = expenses.find((expense) => expense.documentId === metadata.id);
-      const derivedExpense = deriveExpenseFromDocument(metadata, accounts, existingExpense);
-
-      if (derivedExpense) {
-        await persistExpense(derivedExpense, settings.firebaseConfig);
-        addExpense(derivedExpense);
-
-        const existingTimelineEntry = timelineEntries.find(
-          (entry) => entry.linkedExpenseId === derivedExpense.id
-        );
-        const derivedTimelineEntry = deriveTimelineEntryFromExpense(
-          derivedExpense,
-          existingTimelineEntry
-        );
-
-        if (derivedTimelineEntry) {
-          await persistTimelineEntry(derivedTimelineEntry, settings.firebaseConfig);
-          addTimelineEntry(derivedTimelineEntry);
+      await processDocumentForDerivedEntities(
+        {
+          document: metadata,
+          accounts,
+          expenses,
+          timelineEntries,
+          firebaseConfig: settings.firebaseConfig
+        },
+        {
+          onAccountUpsert: addAccount,
+          onExpenseUpsert: addExpense,
+          onTimelineUpsert: addTimelineEntry
         }
-      }
+      );
       setFeedback({
         type: 'success',
         message: existingDocument

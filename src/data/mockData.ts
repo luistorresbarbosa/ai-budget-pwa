@@ -6,14 +6,16 @@ export const mockAccounts: Account[] = [
     name: 'Conta Corrente',
     type: 'corrente',
     balance: 2350.23,
-    currency: 'EUR'
+    currency: 'EUR',
+    validationStatus: 'validada'
   },
   {
     id: 'acc-2',
     name: 'Poupança Objetivos',
     type: 'poupanca',
     balance: 5400,
-    currency: 'EUR'
+    currency: 'EUR',
+    validationStatus: 'validada'
   }
 ];
 

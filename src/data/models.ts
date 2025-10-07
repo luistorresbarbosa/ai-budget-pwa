@@ -3,12 +3,25 @@ import { DEFAULT_INTEGRATION_LOGS_PAGE_SIZE } from '../types/integrationLogs';
 
 export type AccountType = 'corrente' | 'poupanca' | 'cartao' | 'outro';
 
+export type AccountValidationStatus = 'validada' | 'validacao-manual';
+
+export interface AccountMetadata {
+  iban?: string;
+  ibanNumber?: string;
+  accountNumber?: string;
+  number?: string;
+  identifier?: string;
+  hints?: string[];
+}
+
 export interface Account {
   id: string;
   name: string;
   type: AccountType;
   balance: number;
   currency: string;
+  metadata?: AccountMetadata;
+  validationStatus?: AccountValidationStatus;
 }
 
 export interface Expense {
@@ -49,6 +62,17 @@ export interface DocumentMetadata {
   expenseType?: string;
   notes?: string;
   extractedAt?: string;
+  recurringExpenses?: RecurringExpenseCandidate[];
+}
+
+export interface RecurringExpenseCandidate {
+  description: string;
+  averageAmount?: number;
+  currency?: string;
+  dayOfMonth?: number;
+  accountHint?: string;
+  monthsObserved?: string[];
+  notes?: string;
 }
 
 export interface TimelineEntry {

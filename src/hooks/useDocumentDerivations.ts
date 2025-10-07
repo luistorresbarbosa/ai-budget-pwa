@@ -1,43 +1,14 @@
 import { useEffect, useRef } from 'react';
 import { useAppState } from '../state/AppStateContext';
 import { validateFirebaseConfig } from '../services/firebase';
-import { persistExpense } from '../services/expenses';
-import { persistTimelineEntry } from '../services/timeline';
-import {
-  deriveExpenseFromDocument,
-  deriveTimelineEntryFromExpense
-} from '../services/expenseDerivation';
-import type { Expense, TimelineEntry } from '../data/models';
-
-function expenseHasChanged(existingExpense: Expense, nextExpense: Expense): boolean {
-  return (
-    existingExpense.accountId !== nextExpense.accountId ||
-    existingExpense.description !== nextExpense.description ||
-    existingExpense.category !== nextExpense.category ||
-    existingExpense.amount !== nextExpense.amount ||
-    existingExpense.currency !== nextExpense.currency ||
-    existingExpense.dueDate !== nextExpense.dueDate ||
-    existingExpense.recurrence !== nextExpense.recurrence ||
-    existingExpense.fixed !== nextExpense.fixed ||
-    existingExpense.status !== nextExpense.status
-  );
-}
-
-function timelineEntryHasChanged(existingEntry: TimelineEntry, nextEntry: TimelineEntry): boolean {
-  return (
-    existingEntry.date !== nextEntry.date ||
-    existingEntry.description !== nextEntry.description ||
-    existingEntry.amount !== nextEntry.amount ||
-    existingEntry.currency !== nextEntry.currency ||
-    existingEntry.linkedExpenseId !== nextEntry.linkedExpenseId
-  );
-}
+import { processDocumentForDerivedEntities } from '../services/documentAutomation';
 
 export function useDocumentDerivations(): void {
   const documents = useAppState((state) => state.documents);
   const accounts = useAppState((state) => state.accounts);
   const expenses = useAppState((state) => state.expenses);
   const timelineEntries = useAppState((state) => state.timeline);
+  const addAccount = useAppState((state) => state.addAccount);
   const addExpense = useAppState((state) => state.addExpense);
   const addTimelineEntry = useAppState((state) => state.addTimelineEntry);
   const settings = useAppState((state) => state.settings);
@@ -48,7 +19,7 @@ export function useDocumentDerivations(): void {
     if (!config || !validateFirebaseConfig(config)) {
       return;
     }
-    if (documents.length === 0 || accounts.length === 0) {
+    if (documents.length === 0) {
       return;
     }
     if (isProcessingRef.current) {
@@ -60,42 +31,41 @@ export function useDocumentDerivations(): void {
 
     (async () => {
       try {
+        let accountsSnapshot = accounts;
+        let expensesSnapshot = expenses;
+        let timelineSnapshot = timelineEntries;
+
         for (const document of documents) {
-          const existingExpense = expenses.find(
-            (expense) => expense.documentId === document.id || expense.id === `doc-exp-${document.id}`
-          );
-          const derivedExpense = deriveExpenseFromDocument(document, accounts, existingExpense ?? undefined);
-
-          if (derivedExpense && (!existingExpense || expenseHasChanged(existingExpense, derivedExpense))) {
-            await persistExpense(derivedExpense, config);
-            if (!cancelled) {
-              addExpense(derivedExpense);
+          const result = await processDocumentForDerivedEntities(
+            {
+              document,
+              accounts: accountsSnapshot,
+              expenses: expensesSnapshot,
+              timelineEntries: timelineSnapshot,
+              firebaseConfig: config
+            },
+            {
+              onAccountUpsert: (account) => {
+                if (!cancelled) {
+                  addAccount(account);
+                }
+              },
+              onExpenseUpsert: (expense) => {
+                if (!cancelled) {
+                  addExpense(expense);
+                }
+              },
+              onTimelineUpsert: (entry) => {
+                if (!cancelled) {
+                  addTimelineEntry(entry);
+                }
+              }
             }
-          }
-
-          if (!derivedExpense) {
-            continue;
-          }
-
-          const existingTimelineEntry = timelineEntries.find(
-            (entry) =>
-              entry.linkedExpenseId === derivedExpense.id ||
-              entry.id === `doc-timeline-${document.id}`
-          );
-          const derivedTimelineEntry = deriveTimelineEntryFromExpense(
-            derivedExpense,
-            existingTimelineEntry ?? undefined
           );
 
-          if (
-            derivedTimelineEntry &&
-            (!existingTimelineEntry || timelineEntryHasChanged(existingTimelineEntry, derivedTimelineEntry))
-          ) {
-            await persistTimelineEntry(derivedTimelineEntry, config);
-            if (!cancelled) {
-              addTimelineEntry(derivedTimelineEntry);
-            }
-          }
+          accountsSnapshot = result.accounts;
+          expensesSnapshot = result.expenses;
+          timelineSnapshot = result.timelineEntries;
         }
       } catch (error) {
         console.error('Falha ao derivar despesas ou timeline a partir de documentos.', error);
@@ -107,5 +77,5 @@ export function useDocumentDerivations(): void {
     return () => {
       cancelled = true;
     };
-  }, [accounts, addExpense, addTimelineEntry, documents, expenses, settings.firebaseConfig, timelineEntries]);
+  }, [accounts, addAccount, addExpense, addTimelineEntry, documents, expenses, settings.firebaseConfig, timelineEntries]);
 }
