@@ -1,4 +1,4 @@
-import type { RecurringExpenseCandidate } from '../data/models';
+import type { RecurringExpenseCandidate, StatementSettlement } from '../data/models';
 import { logOpenAIEvent } from './integrationLogger';
 
 const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
@@ -162,6 +162,9 @@ export interface OpenAIDocumentExtraction {
   notes?: string;
   rawResponse?: unknown;
   recurringExpenses?: RecurringExpenseCandidate[];
+  supplierTaxId?: string;
+  statementAccountIban?: string;
+  statementSettlements?: StatementSettlement[];
 }
 
 interface ResponsesJsonSchemaFormat {
@@ -358,6 +361,51 @@ function normaliseRecurringExpenses(raw: unknown): RecurringExpenseCandidate[] {
   }
 
   return candidates;
+}
+
+function normaliseTaxId(raw: unknown): string | undefined {
+  if (typeof raw !== 'string') {
+    return undefined;
+  }
+  const trimmed = raw.trim();
+  return trimmed || undefined;
+}
+
+function normaliseStatementSettlements(raw: unknown): StatementSettlement[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+
+  const settlements: StatementSettlement[] = [];
+
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') {
+      continue;
+    }
+
+    const record = entry as Record<string, unknown>;
+    const settlement: StatementSettlement = {
+      description: typeof record.description === 'string' ? record.description.trim() || undefined : undefined,
+      amount: typeof record.amount === 'number' ? record.amount : undefined,
+      currency: typeof record.currency === 'string' ? record.currency : undefined,
+      settledOn: typeof record.settledOn === 'string' ? record.settledOn : undefined,
+      documentIdHint: typeof record.documentIdHint === 'string' ? record.documentIdHint : undefined,
+      expenseIdHint: typeof record.expenseIdHint === 'string' ? record.expenseIdHint : undefined,
+      supplierName: typeof record.supplierName === 'string' ? record.supplierName : undefined,
+      supplierTaxId: typeof record.supplierTaxId === 'string' ? record.supplierTaxId : undefined
+    };
+
+    if (
+      settlement.description ||
+      settlement.amount != null ||
+      settlement.documentIdHint ||
+      settlement.expenseIdHint
+    ) {
+      settlements.push(settlement);
+    }
+  }
+
+  return settlements;
 }
 
 export async function listOpenAIModels(
@@ -770,15 +818,18 @@ export async function extractPdfMetadataWithOpenAI({
               {
                 type: 'input_text',
                 text:
-                  'Analisa o PDF fornecido e devolve um JSON com os campos "sourceType", "amount", "currency", "dueDate", "accountHint", "companyName", "expenseType", "notes" e "recurringExpenses". ' +
+                  'Analisa o PDF fornecido e devolve um JSON com os campos "sourceType", "amount", "currency", "dueDate", "accountHint", "companyName", "expenseType", "notes", "recurringExpenses", "supplierTaxId", "statementAccountIban" e "statementSettlements". ' +
                   'Identifica claramente se o documento é um extracto bancário ou uma fatura/recibo e preenche sourceType com essa informação. ' +
                   'sourceType deve ser um de: fatura, recibo ou extracto. amount deve ser número. dueDate deve estar em ISO 8601 se existir. ' +
                   'Para identificar o accountHint, dá prioridade a IBANs: procura explicitamente por campos etiquetados como "IBAN", remove espaços e devolve-o em maiúsculas. ' +
                   'Se o IBAN estiver truncado ou mascarado, inclui o prefixo disponível (por exemplo, país + dígitos de controlo) e garante que os últimos 4 a 8 dígitos visíveis são preservados para permitir a associação da conta. ' +
                   'Quando não existir IBAN, devolve outro identificador curto e estável da conta (ex.: número de conta interno), sem texto adicional. ' +
-                  'Quando o documento for um extracto, analisa os movimentos e devolve em recurringExpenses apenas as despesas fixas que se repetem em pelo menos dois meses diferentes com a mesma descrição. ' +
+                  'Quando o documento for um extracto, deixa amount e dueDate como null, analisa os movimentos e devolve em recurringExpenses apenas as despesas fixas que se repetem em pelo menos dois meses diferentes com a mesma descrição. ' +
                   'Cada elemento de recurringExpenses deve incluir description, averageAmount (média dos valores observados), currency, dayOfMonth (dia mais provável do débito), accountHint, monthsObserved (lista de meses no formato YYYY-MM) e notes com detalhes relevantes. ' +
                   'Quando não se tratar de um extracto, devolve recurringExpenses como lista vazia. ' +
+                  'Para extractos, identifica o IBAN principal da conta e devolve-o em statementAccountIban (em maiúsculas, sem espaços). ' +
+                  'Lista também em statementSettlements as despesas pagas identificadas no extracto: cada item deve incluir description, amount, currency, settledOn (ISO 8601), documentIdHint (referência ao documento ou fatura se existir), expenseIdHint (identificador interno se visível), supplierName e supplierTaxId (quando disponível). ' +
+                  'Se o fornecedor tiver número fiscal (NIF/VAT), devolve-o em supplierTaxId. ' +
                   (accountContext
                     ? `A conta de contexto preferencial é "${accountContext}". Considera-a ao interpretar o documento. `
                     : '') +
@@ -850,6 +901,39 @@ export async function extractPdfMetadataWithOpenAI({
                     ],
                     additionalProperties: false
                   }
+                },
+                supplierTaxId: {
+                  type: ['string', 'null']
+                },
+                statementAccountIban: {
+                  type: ['string', 'null']
+                },
+                statementSettlements: {
+                  type: ['array', 'null'],
+                  items: {
+                    type: 'object',
+                    properties: {
+                      description: { type: ['string', 'null'] },
+                      amount: { type: ['number', 'null'] },
+                      currency: { type: ['string', 'null'] },
+                      settledOn: { type: ['string', 'null'] },
+                      documentIdHint: { type: ['string', 'null'] },
+                      expenseIdHint: { type: ['string', 'null'] },
+                      supplierName: { type: ['string', 'null'] },
+                      supplierTaxId: { type: ['string', 'null'] }
+                    },
+                    required: [
+                      'description',
+                      'amount',
+                      'currency',
+                      'settledOn',
+                      'documentIdHint',
+                      'expenseIdHint',
+                      'supplierName',
+                      'supplierTaxId'
+                    ],
+                    additionalProperties: false
+                  }
                 }
               },
               required: [
@@ -861,7 +945,10 @@ export async function extractPdfMetadataWithOpenAI({
                 'companyName',
                 'expenseType',
                 'notes',
-                'recurringExpenses'
+                'recurringExpenses',
+                'supplierTaxId',
+                'statementAccountIban',
+                'statementSettlements'
               ],
               additionalProperties: false
             }
@@ -884,6 +971,9 @@ export async function extractPdfMetadataWithOpenAI({
         expenseType: typeof parsed.expenseType === 'string' ? parsed.expenseType : undefined,
         notes: typeof parsed.notes === 'string' ? parsed.notes : undefined,
         recurringExpenses: normaliseRecurringExpenses(parsed.recurringExpenses),
+        supplierTaxId: normaliseTaxId(parsed.supplierTaxId),
+        statementAccountIban: normaliseAccountHint(parsed.statementAccountIban),
+        statementSettlements: normaliseStatementSettlements(parsed.statementSettlements),
         rawResponse: payload
       };
     }

@@ -7,9 +7,11 @@ export function useDocumentDerivations(): void {
   const documents = useAppState((state) => state.documents);
   const accounts = useAppState((state) => state.accounts);
   const expenses = useAppState((state) => state.expenses);
+  const suppliers = useAppState((state) => state.suppliers);
   const timelineEntries = useAppState((state) => state.timeline);
   const addAccount = useAppState((state) => state.addAccount);
   const addExpense = useAppState((state) => state.addExpense);
+  const addSupplier = useAppState((state) => state.addSupplier);
   const addTimelineEntry = useAppState((state) => state.addTimelineEntry);
   const settings = useAppState((state) => state.settings);
   const isProcessingRef = useRef(false);
@@ -33,6 +35,7 @@ export function useDocumentDerivations(): void {
       try {
         let accountsSnapshot = accounts;
         let expensesSnapshot = expenses;
+        let suppliersSnapshot = suppliers;
         let timelineSnapshot = timelineEntries;
 
         for (const document of documents) {
@@ -41,6 +44,7 @@ export function useDocumentDerivations(): void {
               document,
               accounts: accountsSnapshot,
               expenses: expensesSnapshot,
+              suppliers: suppliersSnapshot,
               timelineEntries: timelineSnapshot,
               firebaseConfig: config
             },
@@ -55,6 +59,11 @@ export function useDocumentDerivations(): void {
                   addExpense(expense);
                 }
               },
+              onSupplierUpsert: (supplier) => {
+                if (!cancelled) {
+                  addSupplier(supplier);
+                }
+              },
               onTimelineUpsert: (entry) => {
                 if (!cancelled) {
                   addTimelineEntry(entry);
@@ -65,6 +74,7 @@ export function useDocumentDerivations(): void {
 
           accountsSnapshot = result.accounts;
           expensesSnapshot = result.expenses;
+          suppliersSnapshot = result.suppliers;
           timelineSnapshot = result.timelineEntries;
         }
       } catch (error) {
@@ -77,5 +87,16 @@ export function useDocumentDerivations(): void {
     return () => {
       cancelled = true;
     };
-  }, [accounts, addAccount, addExpense, addTimelineEntry, documents, expenses, settings.firebaseConfig, timelineEntries]);
+  }, [
+    accounts,
+    addAccount,
+    addExpense,
+    addSupplier,
+    addTimelineEntry,
+    documents,
+    expenses,
+    settings.firebaseConfig,
+    suppliers,
+    timelineEntries
+  ]);
 }

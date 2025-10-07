@@ -24,6 +24,18 @@ export interface Account {
   validationStatus?: AccountValidationStatus;
 }
 
+export interface SupplierMetadata {
+  taxId?: string;
+  accountHints?: string[];
+  notes?: string;
+}
+
+export interface Supplier {
+  id: string;
+  name: string;
+  metadata?: SupplierMetadata;
+}
+
 export interface Expense {
   id: string;
   accountId: string;
@@ -36,6 +48,8 @@ export interface Expense {
   recurrence?: 'mensal' | 'anual' | 'semestral' | 'pontual';
   fixed: boolean;
   status: 'planeado' | 'pago' | 'em-analise';
+  supplierId?: string;
+  paidAt?: string;
 }
 
 export interface Transfer {
@@ -63,6 +77,10 @@ export interface DocumentMetadata {
   notes?: string;
   extractedAt?: string;
   recurringExpenses?: RecurringExpenseCandidate[];
+  supplierId?: string;
+  supplierTaxId?: string;
+  statementAccountIban?: string;
+  statementSettlements?: StatementSettlement[];
 }
 
 export interface RecurringExpenseCandidate {
@@ -73,6 +91,17 @@ export interface RecurringExpenseCandidate {
   accountHint?: string;
   monthsObserved?: string[];
   notes?: string;
+}
+
+export interface StatementSettlement {
+  description?: string;
+  amount?: number;
+  currency?: string;
+  settledOn?: string;
+  documentIdHint?: string;
+  expenseIdHint?: string;
+  supplierName?: string;
+  supplierTaxId?: string;
 }
 
 export interface TimelineEntry {
