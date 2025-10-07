@@ -1,5 +1,4 @@
 import { cleanup, render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import SettingsPage from './SettingsPage';
 import { AppStateProvider } from '../state/AppStateContext';
@@ -73,23 +72,18 @@ describe('SettingsPage', () => {
     expect(screen.getByLabelText('Configuração Firebase (JSON)')).toBeInTheDocument();
   });
 
-  it('actualiza o número de logs visíveis quando o utilizador altera os resultados por página', async () => {
-    const user = userEvent.setup();
-
+  it('apresenta o resumo dos logs apenas com a opção de exportação', async () => {
     renderSettingsPage();
 
-    const pageSizeSelectors = await screen.findAllByLabelText('Resultados por página');
-    expect(pageSizeSelectors).toHaveLength(1);
-    const [select] = pageSizeSelectors;
+    expect(await screen.findByRole('button', { name: /Exportar logs/ })).toBeInTheDocument();
+    expect(screen.getByText(/Total de 8 eventos/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Sem eventos registados/i)).not.toBeInTheDocument();
+  });
 
-    const initialItems = await screen.findAllByRole('listitem');
-    const initialMessages = Array.from(new Set(initialItems.map((item) => item.textContent?.trim() ?? '')));
-    expect(initialMessages).toHaveLength(5);
+  it('exibe botões para remoção rápida das entidades', () => {
+    renderSettingsPage();
 
-    await user.selectOptions(select, '10');
-
-    const updatedItems = await screen.findAllByRole('listitem');
-    const updatedMessages = Array.from(new Set(updatedItems.map((item) => item.textContent?.trim() ?? '')));
-    expect(updatedMessages).toHaveLength(sampleLogsState.openai.length + sampleLogsState.firebase.length);
+    expect(screen.getByRole('button', { name: /Remover contas/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Remover fornecedores/i })).toBeInTheDocument();
   });
 });

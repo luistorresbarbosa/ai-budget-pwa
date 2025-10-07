@@ -1,5 +1,6 @@
-import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Trash2 } from 'lucide-react';
 import { useAppState } from '../state/AppStateContext';
 import {
   initializeFirebase,
@@ -23,16 +24,31 @@ import {
   subscribeToIntegrationLogs
 } from '../services/integrationLogger';
 import type { IntegrationLogEntry, IntegrationLogSource, IntegrationLogsState } from '../types/integrationLogs';
-import { DEFAULT_INTEGRATION_LOGS_PAGE_SIZE, MAX_INTEGRATION_LOGS } from '../types/integrationLogs';
-import {
-  MIN_INTEGRATION_LOGS_PAGE_SIZE,
-  normaliseLogsPerPage,
-  paginateLogs
-} from './settingsLogsPagination';
+import { removeAccountById } from '../services/accounts';
+import { removeSupplierById } from '../services/suppliers';
+import { removeDocumentMetadata } from '../services/documents';
+import { removeExpenseMetadata } from '../services/expenses';
+import { removeTimelineEntryById } from '../services/timeline';
+
+type DeletableEntity = 'accounts' | 'documents' | 'expenses' | 'suppliers' | 'timeline' | 'transfers';
+type DeletionTone = 'success' | 'error' | 'info';
+type DeletionFeedback = { tone: DeletionTone; message: string };
 
 function SettingsPage() {
   const settings = useAppState((state) => state.settings);
   const updateSettings = useAppState((state) => state.updateSettings);
+  const accounts = useAppState((state) => state.accounts);
+  const documents = useAppState((state) => state.documents);
+  const expenses = useAppState((state) => state.expenses);
+  const suppliers = useAppState((state) => state.suppliers);
+  const transfers = useAppState((state) => state.transfers);
+  const timeline = useAppState((state) => state.timeline);
+  const setAccounts = useAppState((state) => state.setAccounts);
+  const setDocuments = useAppState((state) => state.setDocuments);
+  const setExpenses = useAppState((state) => state.setExpenses);
+  const setSuppliers = useAppState((state) => state.setSuppliers);
+  const setTransfers = useAppState((state) => state.setTransfers);
+  const setTimeline = useAppState((state) => state.setTimeline);
   const [apiKey, setApiKey] = useState(settings.openAIApiKey ?? '');
   const [openAIBaseUrl, setOpenAIBaseUrl] = useState(
     normaliseOpenAIBaseUrl(settings.openAIBaseUrl)
@@ -53,10 +69,17 @@ function SettingsPage() {
   const [isTestingOpenAI, setIsTestingOpenAI] = useState(false);
   const [isTestingFirebase, setIsTestingFirebase] = useState(false);
   const [logsState, setLogsState] = useState<IntegrationLogsState>(() => getIntegrationLogs());
-  const [logsPerPage, setLogsPerPage] = useState(() =>
-    normaliseLogsPerPage(settings.integrationLogsPageSize)
-  );
-  const [logsPage, setLogsPage] = useState(1);
+  const [deletionFeedback, setDeletionFeedback] = useState<
+    Record<DeletableEntity, DeletionFeedback | undefined>
+  >({});
+  const [deletionInProgress, setDeletionInProgress] = useState<Record<DeletableEntity, boolean>>({
+    accounts: false,
+    documents: false,
+    expenses: false,
+    suppliers: false,
+    timeline: false,
+    transfers: false
+  });
   const openAILogs = logsState.openai;
   const firebaseLogs = logsState.firebase;
   const settingsFirebaseConfig = settings.firebaseConfig;
@@ -70,32 +93,8 @@ function SettingsPage() {
   }, []);
 
   useEffect(() => {
-    setLogsPerPage(normaliseLogsPerPage(settings.integrationLogsPageSize));
-  }, [settings.integrationLogsPageSize]);
-
-  useEffect(() => {
     setOpenAIBaseUrl(normaliseOpenAIBaseUrl(settings.openAIBaseUrl));
   }, [settings.openAIBaseUrl]);
-
-  const logsPerPageOptions = useMemo(() => {
-    const baseOptions = [
-      5,
-      10,
-      15,
-      20,
-      DEFAULT_INTEGRATION_LOGS_PAGE_SIZE,
-      MAX_INTEGRATION_LOGS,
-      logsPerPage
-    ];
-    const filtered = baseOptions
-      .map((value) => normaliseLogsPerPage(value))
-      .filter((value) => value >= MIN_INTEGRATION_LOGS_PAGE_SIZE && value <= MAX_INTEGRATION_LOGS);
-    const unique = Array.from(new Set(filtered));
-    unique.sort((a, b) => a - b);
-    return unique;
-  }, [logsPerPage]);
-
-  const logsPerPageSelectId = 'integration-logs-page-size';
 
   const combinedLogs = useMemo(() => {
     const allEntries: Array<{ source: IntegrationLogSource; entry: IntegrationLogEntry }> = [];
@@ -108,44 +107,7 @@ function SettingsPage() {
     return allEntries.sort((a, b) => b.entry.timestamp - a.entry.timestamp);
   }, [firebaseLogs, openAILogs]);
 
-  const combinedPagination = useMemo(
-    () => paginateLogs(combinedLogs, logsPerPage, logsPage),
-    [combinedLogs, logsPage, logsPerPage]
-  );
-
-  useEffect(() => {
-    if (logsPage !== combinedPagination.page) {
-      setLogsPage(combinedPagination.page);
-    }
-  }, [combinedPagination.page, logsPage]);
-
-  useEffect(() => {
-    setLogsPage(1);
-  }, [logsPerPage]);
-
-  const {
-    items: paginatedLogs,
-    totalItems: totalLogs,
-    totalPages: totalLogsPages,
-    page: currentLogsPage,
-    rangeStart: logsRangeStart,
-    rangeEnd: logsRangeEnd,
-    hasMultiplePages: shouldShowLogsPagination
-  } = combinedPagination;
-
-  const handleLogsPreviousPage = useCallback(() => {
-    setLogsPage((current) => {
-      const clampedCurrent = Math.min(Math.max(current, 1), totalLogsPages);
-      return Math.max(1, clampedCurrent - 1);
-    });
-  }, [totalLogsPages]);
-
-  const handleLogsNextPage = useCallback(() => {
-    setLogsPage((current) => {
-      const clampedCurrent = Math.min(Math.max(current, 1), totalLogsPages);
-      return Math.min(totalLogsPages, clampedCurrent + 1);
-    });
-  }, [totalLogsPages]);
+  const totalLogs = combinedLogs.length;
 
   const loadOpenAIModels = useCallback(
     async (abortSignal?: AbortSignal) => {
@@ -275,19 +237,6 @@ function SettingsPage() {
 
   const hasOpenAIApiKey = apiKey.trim().length > 0;
 
-  const handleLogsPerPageChange = useCallback(
-    (event: ChangeEvent<HTMLSelectElement>) => {
-      const parsedValue = Number(event.target.value);
-      const nextValue = normaliseLogsPerPage(
-        Number.isFinite(parsedValue) ? parsedValue : logsPerPage
-      );
-      setLogsPerPage(nextValue);
-      setLogsPage(1);
-      updateSettings({ integrationLogsPageSize: nextValue });
-    },
-    [logsPerPage, updateSettings]
-  );
-
   const logsSignature = useMemo(() => JSON.stringify(logsState), [logsState]);
   const firebaseConfigSignature = useMemo(
     () => (settingsFirebaseConfig ? JSON.stringify(settingsFirebaseConfig) : null),
@@ -344,6 +293,223 @@ function SettingsPage() {
       firebase: 'bg-emerald-50 text-emerald-700 border-emerald-200'
     }),
     []
+  );
+
+  const deletionFeedbackStyles = useMemo<Record<DeletionTone, string>>(
+    () => ({
+      success: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+      error: 'border-rose-200 bg-rose-50 text-rose-700',
+      info: 'border-slate-200 bg-white text-slate-500'
+    }),
+    []
+  );
+
+  const performDeletion = useCallback(
+    async <T extends { id: string }>(
+      entity: DeletableEntity,
+      items: T[],
+      remover: ((id: string, config: FirebaseConfig) => Promise<void>) | null,
+      clearLocal: () => void,
+      options: { emptyMessage: string; successMessage: string; localMessage: string; logDescription: string }
+    ) => {
+      if (items.length === 0) {
+        setDeletionFeedback((state) => ({
+          ...state,
+          [entity]: { tone: 'info', message: options.emptyMessage }
+        }));
+        return;
+      }
+
+      setDeletionInProgress((state) => ({ ...state, [entity]: true }));
+      setDeletionFeedback((state) => ({ ...state, [entity]: undefined }));
+
+      const firebaseConfig = settingsFirebaseConfig;
+      const hasValidConfig = firebaseConfig && validateFirebaseConfig(firebaseConfig);
+      const resolvedConfig = hasValidConfig ? (firebaseConfig as FirebaseConfig) : null;
+
+      try {
+        if (remover && resolvedConfig) {
+          for (const item of items) {
+            await remover(item.id, resolvedConfig);
+          }
+          logFirebaseEvent(options.logDescription);
+        } else if (!remover) {
+          logFirebaseEvent(options.logDescription);
+        }
+
+        clearLocal();
+
+        setDeletionFeedback((state) => ({
+          ...state,
+          [entity]: {
+            tone: remover && resolvedConfig ? 'success' : 'info',
+            message: remover && resolvedConfig ? options.successMessage : options.localMessage
+          }
+        }));
+      } catch (error) {
+        console.error(`Não foi possível remover ${entity}.`, error);
+        const message =
+          error instanceof Error ? error.message : 'Não foi possível remover os registos. Tente novamente.';
+        setDeletionFeedback((state) => ({
+          ...state,
+          [entity]: { tone: 'error', message }
+        }));
+      } finally {
+        setDeletionInProgress((state) => ({ ...state, [entity]: false }));
+      }
+    },
+    [setDeletionFeedback, setDeletionInProgress, settingsFirebaseConfig]
+  );
+
+  const handleClearAccounts = useCallback(() => {
+    return performDeletion(
+      'accounts',
+      accounts,
+      removeAccountById,
+      () => setAccounts([]),
+      {
+        emptyMessage: 'Não existem contas para remover.',
+        successMessage: 'Contas removidas do Firebase e da app.',
+        localMessage: 'Contas removidas localmente. Configure o Firebase para limpar a cloud.',
+        logDescription: `Remoção manual de ${accounts.length} conta(s).`
+      }
+    );
+  }, [accounts, performDeletion, setAccounts]);
+
+  const handleClearSuppliers = useCallback(() => {
+    return performDeletion(
+      'suppliers',
+      suppliers,
+      removeSupplierById,
+      () => setSuppliers([]),
+      {
+        emptyMessage: 'Não existem fornecedores para remover.',
+        successMessage: 'Fornecedores removidos do Firebase e da app.',
+        localMessage: 'Fornecedores removidos localmente. Configure o Firebase para limpar a cloud.',
+        logDescription: `Remoção manual de ${suppliers.length} fornecedor(es).`
+      }
+    );
+  }, [performDeletion, setSuppliers, suppliers]);
+
+  const handleClearDocuments = useCallback(() => {
+    return performDeletion(
+      'documents',
+      documents,
+      removeDocumentMetadata,
+      () => setDocuments([]),
+      {
+        emptyMessage: 'Não existem documentos para remover.',
+        successMessage: 'Documentos removidos do Firebase e da app.',
+        localMessage: 'Documentos removidos localmente. Configure o Firebase para limpar a cloud.',
+        logDescription: `Remoção manual de ${documents.length} documento(s).`
+      }
+    );
+  }, [documents, performDeletion, setDocuments]);
+
+  const handleClearExpenses = useCallback(() => {
+    return performDeletion(
+      'expenses',
+      expenses,
+      removeExpenseMetadata,
+      () => setExpenses([]),
+      {
+        emptyMessage: 'Não existem despesas para remover.',
+        successMessage: 'Despesas removidas do Firebase e da app.',
+        localMessage: 'Despesas removidas localmente. Configure o Firebase para limpar a cloud.',
+        logDescription: `Remoção manual de ${expenses.length} despesa(s).`
+      }
+    );
+  }, [expenses, performDeletion, setExpenses]);
+
+  const handleClearTimeline = useCallback(() => {
+    return performDeletion(
+      'timeline',
+      timeline,
+      removeTimelineEntryById,
+      () => setTimeline([]),
+      {
+        emptyMessage: 'Não existem eventos na timeline para remover.',
+        successMessage: 'Eventos da timeline removidos do Firebase e da app.',
+        localMessage: 'Timeline limpa localmente. Configure o Firebase para limpar a cloud.',
+        logDescription: `Remoção manual de ${timeline.length} evento(s) da timeline.`
+      }
+    );
+  }, [performDeletion, setTimeline, timeline]);
+
+  const handleClearTransfers = useCallback(async () => {
+    await performDeletion(
+      'transfers',
+      transfers,
+      null,
+      () => setTransfers([]),
+      {
+        emptyMessage: 'Não existem transferências para remover.',
+        successMessage: 'Transferências removidas.',
+        localMessage: 'Transferências removidas localmente. Sincronização remota ainda não disponível.',
+        logDescription: `Remoção manual de ${transfers.length} transferência(s).`
+      }
+    );
+  }, [performDeletion, setTransfers, transfers]);
+
+  const deletionItems = useMemo(
+    () => [
+      {
+        key: 'accounts' as const,
+        label: 'Contas',
+        description: 'Remove todas as contas sincronizadas e reinicia o processo de mapeamento.',
+        count: accounts.length,
+        onClear: handleClearAccounts
+      },
+      {
+        key: 'suppliers' as const,
+        label: 'Fornecedores',
+        description: 'Limpa o catálogo de fornecedores e respectivos alias.',
+        count: suppliers.length,
+        onClear: handleClearSuppliers
+      },
+      {
+        key: 'documents' as const,
+        label: 'Documentos',
+        description: 'Apaga todos os metadados de documentos importados.',
+        count: documents.length,
+        onClear: handleClearDocuments
+      },
+      {
+        key: 'expenses' as const,
+        label: 'Despesas',
+        description: 'Remove despesas derivadas ou registadas manualmente.',
+        count: expenses.length,
+        onClear: handleClearExpenses
+      },
+      {
+        key: 'timeline' as const,
+        label: 'Timeline',
+        description: 'Limpa todos os eventos visíveis na timeline.',
+        count: timeline.length,
+        onClear: handleClearTimeline
+      },
+      {
+        key: 'transfers' as const,
+        label: 'Transferências',
+        description: 'Remove transferências agendadas ou históricas guardadas localmente.',
+        count: transfers.length,
+        onClear: handleClearTransfers
+      }
+    ],
+    [
+      accounts.length,
+      documents.length,
+      expenses.length,
+      handleClearAccounts,
+      handleClearDocuments,
+      handleClearExpenses,
+      handleClearSuppliers,
+      handleClearTimeline,
+      handleClearTransfers,
+      suppliers.length,
+      timeline.length,
+      transfers.length
+    ]
   );
 
   const handleExportLogs = useCallback(() => {
@@ -430,8 +596,7 @@ function SettingsPage() {
           normalizedBaseUrl && normalizedBaseUrl !== DEFAULT_OPENAI_BASE_URL ? normalizedBaseUrl : undefined,
         openAIModel: normalizedModel && normalizedModel !== DEFAULT_OPENAI_MODEL ? normalizedModel : undefined,
         autoDetectFixedExpenses: autoDetect,
-        firebaseConfig: firebaseSettings,
-        integrationLogsPageSize: logsPerPage
+        firebaseConfig: firebaseSettings
       });
       setOpenAIBaseUrl(normalizedBaseUrl);
       setOpenAIModel(normalizedModel || DEFAULT_OPENAI_MODEL);
@@ -793,41 +958,23 @@ function SettingsPage() {
         <header className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="space-y-1">
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Logs de ligação</p>
-            <h2 className="text-lg font-semibold text-slate-900">Estado das integrações</h2>
-            <p className="text-sm text-slate-500">Acompanhe o histórico recente de eventos das integrações com a OpenAI e o Firebase.</p>
+            <h2 className="text-lg font-semibold text-slate-900">Exportar histórico das integrações</h2>
+            <p className="text-sm text-slate-500">
+              Os eventos registados ficam disponíveis apenas através da exportação para ficheiro.
+            </p>
           </div>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end sm:gap-4">
-            <label
-              htmlFor={logsPerPageSelectId}
-              className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500 sm:flex-row sm:items-center sm:gap-3"
-            >
-              <span>Resultados por página</span>
-              <select
-                id={logsPerPageSelectId}
-                value={logsPerPage}
-                onChange={handleLogsPerPageChange}
-                className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-sm transition hover:border-slate-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900"
-              >
-                {logsPerPageOptions.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button
-              type="button"
-              onClick={handleExportLogs}
-              className="inline-flex items-center justify-center rounded-2xl border border-slate-300 bg-white px-4 py-2 text-xs font-medium uppercase tracking-wide text-slate-600 shadow-sm transition hover:border-slate-400 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900"
-            >
-              Exportar logs (.txt)
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={handleExportLogs}
+            className="inline-flex items-center justify-center rounded-2xl border border-slate-300 bg-white px-4 py-2 text-xs font-medium uppercase tracking-wide text-slate-600 shadow-sm transition hover:border-slate-400 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900"
+          >
+            Exportar logs (.txt)
+          </button>
         </header>
         <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Eventos registados</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Resumo</p>
               <span className="text-[10px] uppercase tracking-wide text-slate-400">
                 Total de {totalLogs} eventos (OpenAI: {openAILogs.length} · Firebase: {firebaseLogs.length})
               </span>
@@ -841,58 +988,65 @@ function SettingsPage() {
               </span>
             </div>
           </div>
-          <ul className="space-y-2 text-sm text-slate-600">
-            {paginatedLogs.length === 0 ? (
-              <li className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-400 shadow-sm">
-                Sem eventos registados.
-              </li>
-            ) : (
-              paginatedLogs.map((item) => (
-                <li
-                  key={`${item.source}-${item.entry.timestamp}-${item.entry.message}`}
-                  className="space-y-1 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-500 shadow-sm"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 ${integrationBadgeStyles[item.source]}`}>
-                      <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                      {integrationLabels[item.source]}
-                    </span>
-                    <span className="font-mono text-[10px] uppercase tracking-wide text-slate-400">
-                      {formatLogTimestamp.format(item.entry.timestamp)}
-                    </span>
-                  </div>
-                  <p className="whitespace-pre-line text-[11px] leading-relaxed text-slate-600">{item.entry.message}</p>
-                </li>
-              ))
-            )}
-          </ul>
-          {totalLogs > 0 && (
-            <div className="flex flex-col gap-2 pt-1 text-[10px] uppercase tracking-wide text-slate-400 sm:flex-row sm:items-center sm:justify-between">
-              <span>
-                Mostrando {logsRangeStart}–{logsRangeEnd} de {totalLogs} (página {currentLogsPage} de {totalLogsPages})
-              </span>
-              {shouldShowLogsPagination && (
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleLogsPreviousPage}
-                    disabled={currentLogsPage === 1}
-                    className="inline-flex items-center justify-center rounded-full border border-slate-300 bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 shadow-sm transition hover:border-slate-400 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    Anterior
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleLogsNextPage}
-                    disabled={currentLogsPage === totalLogsPages}
-                    className="inline-flex items-center justify-center rounded-full border border-slate-300 bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 shadow-sm transition hover:border-slate-400 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    Seguinte
-                  </button>
+          <p className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-3 text-xs text-slate-500">
+            Exporte os logs para analisar mensagens, erros e latências das integrações fora da aplicação.
+          </p>
+        </div>
+      </motion.section>
+
+      <motion.section
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.2, duration: 0.35, ease: 'easeOut' }}
+        className="space-y-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
+      >
+        <header className="space-y-1">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Limpeza de dados</p>
+          <h2 className="text-lg font-semibold text-slate-900">Remover entidades para testes</h2>
+          <p className="text-sm text-slate-500">
+            Elimine rapidamente conjuntos de dados para repetir importações ou iniciar um novo ciclo de validação.
+          </p>
+        </header>
+        <div className="space-y-3">
+          {deletionItems.map((item) => {
+            const feedbackEntry = deletionFeedback[item.key];
+            return (
+              <div
+                key={item.key}
+                className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="flex-1">
+                  <p className="text-sm font-semibold text-slate-900">{item.label}</p>
+                  <p className="text-xs text-slate-500">{item.description}</p>
                 </div>
-              )}
-            </div>
-          )}
+                <div className="flex flex-col gap-2 sm:items-end">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      {item.count} {item.count === 1 ? 'registo' : 'registos'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void item.onClear();
+                      }}
+                      disabled={deletionInProgress[item.key]}
+                      className="inline-flex items-center gap-2 rounded-2xl border border-rose-300 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-600 shadow-sm transition hover:border-rose-400 hover:bg-rose-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-500 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      {deletionInProgress[item.key] ? 'A remover…' : `Remover ${item.label.toLowerCase()}`}
+                    </button>
+                  </div>
+                  {feedbackEntry && (
+                    <p
+                      className={`rounded-2xl border px-3 py-2 text-[11px] shadow-sm ${deletionFeedbackStyles[feedbackEntry.tone]}`}
+                    >
+                      {feedbackEntry.message}
+                    </p>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
       </motion.section>
     </motion.section>

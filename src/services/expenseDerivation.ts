@@ -1,6 +1,7 @@
 import type { Account, DocumentMetadata, Expense, TimelineEntry } from '../data/models';
 
 const ACCOUNT_IDENTIFIER_KEYS = ['iban', 'ibanNumber', 'accountNumber', 'number', 'identifier'] as const;
+const ACCOUNT_ARRAY_METADATA_KEYS = ['hints', 'accountHints', 'aliases'] as const;
 
 function normaliseIdentifier(value: string): string {
   return value
@@ -25,10 +26,22 @@ function extractAccountCandidates(account: Account): string[] {
 
   const metadata = accountRecord['metadata'];
   if (metadata && typeof metadata === 'object') {
+    const metadataRecord = metadata as Record<string, unknown>;
     for (const key of ACCOUNT_IDENTIFIER_KEYS) {
-      const value = (metadata as Record<string, unknown>)[key];
+      const value = metadataRecord[key];
       if (typeof value === 'string') {
         candidateValues.add(value);
+      }
+    }
+
+    for (const key of ACCOUNT_ARRAY_METADATA_KEYS) {
+      const value = metadataRecord[key];
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          if (typeof item === 'string') {
+            candidateValues.add(item);
+          }
+        }
       }
     }
   }
