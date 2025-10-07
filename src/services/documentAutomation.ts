@@ -12,6 +12,9 @@ import { persistExpense } from './expenses';
 import { persistSupplier } from './suppliers';
 import { persistTimelineEntry } from './timeline';
 import {
+  buildDocumentExpenseDeduplicationKey,
+  buildExpenseIdFromDeduplicationKey,
+  buildRecurringExpenseDeduplicationKey,
   deriveExpenseFromDocument,
   deriveTimelineEntryFromExpense,
   findAccountByHint
@@ -572,9 +575,16 @@ function buildRecurringExpense(
   }
 
   const dueDate = computeNextDueDate(candidate.dayOfMonth, document.uploadDate, existingExpense?.dueDate);
+  const deduplicationKey =
+    existingExpense?.deduplicationKey ?? buildRecurringExpenseDeduplicationKey(candidate, document);
+  const expenseId =
+    existingExpense?.id ??
+    (deduplicationKey
+      ? buildExpenseIdFromDeduplicationKey('rec-exp', deduplicationKey)
+      : buildRecurringExpenseId(document.id, candidate.description));
 
   const expense: Expense = {
-    id: existingExpense?.id ?? buildRecurringExpenseId(document.id, candidate.description),
+    id: expenseId,
     documentId: document.id,
     accountId,
     description: existingExpense?.description ?? candidate.description,
@@ -585,7 +595,8 @@ function buildRecurringExpense(
     recurrence: 'mensal',
     fixed: true,
     status: existingExpense?.status ?? 'em-analise',
-    supplierId: existingExpense?.supplierId ?? supplierId
+    supplierId: existingExpense?.supplierId ?? supplierId,
+    deduplicationKey: deduplicationKey ?? existingExpense?.deduplicationKey
   };
 
   return expense;
@@ -635,6 +646,10 @@ async function processInvoiceDocument(
   const { document, firebaseConfig } = context;
   const supplierResult = ensureSupplier(document, suppliersSnapshot);
   const updatedSuppliers = await ensureSupplierPersisted(supplierResult, firebaseConfig, callbacks);
+  const documentDedupKey = buildDocumentExpenseDeduplicationKey(document);
+  const expectedExpenseId = documentDedupKey
+    ? buildExpenseIdFromDeduplicationKey('exp', documentDedupKey)
+    : undefined;
   const accountResult = ensureAccount({
     accountHint: document.accountHint,
     document,
@@ -644,7 +659,11 @@ async function processInvoiceDocument(
   const updatedAccounts = await ensureAccountPersisted(accountResult, firebaseConfig, callbacks);
 
   const existingExpense = expensesSnapshot.find(
-    (expense) => expense.documentId === document.id || expense.id === `doc-exp-${document.id}`
+    (expense) =>
+      expense.documentId === document.id ||
+      expense.id === `doc-exp-${document.id}` ||
+      (expectedExpenseId ? expense.id === expectedExpenseId : false) ||
+      (documentDedupKey ? expense.deduplicationKey === documentDedupKey : false)
   );
 
   const supplierId = document.supplierId ?? supplierResult.supplier?.id ?? existingExpense?.supplierId;
@@ -745,8 +764,23 @@ async function processStatementDocument(
     currentSuppliers = await ensureSupplierPersisted(supplierResult, firebaseConfig, callbacks);
     const supplierId = supplierResult.supplier?.id;
 
-    const expenseId = buildRecurringExpenseId(document.id, candidate.description);
-    const existingExpense = currentExpenses.find((expense) => expense.id === expenseId);
+    const fallbackExpenseId = buildRecurringExpenseId(document.id, candidate.description);
+    const candidateDedupKey = buildRecurringExpenseDeduplicationKey(candidate, document);
+    const hashedExpenseId = candidateDedupKey
+      ? buildExpenseIdFromDeduplicationKey('rec-exp', candidateDedupKey)
+      : undefined;
+    const existingExpense = currentExpenses.find((expense) => {
+      if (hashedExpenseId && expense.id === hashedExpenseId) {
+        return true;
+      }
+      if (expense.id === fallbackExpenseId) {
+        return true;
+      }
+      if (candidateDedupKey && expense.deduplicationKey === candidateDedupKey) {
+        return true;
+      }
+      return false;
+    });
     const derivedExpense = buildRecurringExpense(
       candidate,
       document,
