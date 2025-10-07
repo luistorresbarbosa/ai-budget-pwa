@@ -34,6 +34,18 @@ type DeletableEntity = 'accounts' | 'documents' | 'expenses' | 'suppliers' | 'ti
 type DeletionTone = 'success' | 'error' | 'info';
 type DeletionFeedback = { tone: DeletionTone; message: string };
 
+const INITIAL_DELETION_FEEDBACK_STATE: Record<
+  DeletableEntity,
+  DeletionFeedback | undefined
+> = {
+  accounts: undefined,
+  documents: undefined,
+  expenses: undefined,
+  suppliers: undefined,
+  timeline: undefined,
+  transfers: undefined
+};
+
 function SettingsPage() {
   const settings = useAppState((state) => state.settings);
   const updateSettings = useAppState((state) => state.updateSettings);
@@ -69,9 +81,10 @@ function SettingsPage() {
   const [isTestingOpenAI, setIsTestingOpenAI] = useState(false);
   const [isTestingFirebase, setIsTestingFirebase] = useState(false);
   const [logsState, setLogsState] = useState<IntegrationLogsState>(() => getIntegrationLogs());
-  const [deletionFeedback, setDeletionFeedback] = useState<
-    Record<DeletableEntity, DeletionFeedback | undefined>
-  >({});
+  const [deletionFeedback, setDeletionFeedback] = useState<Record<
+    DeletableEntity,
+    DeletionFeedback | undefined
+  >>(() => ({ ...INITIAL_DELETION_FEEDBACK_STATE }));
   const [deletionInProgress, setDeletionInProgress] = useState<Record<DeletableEntity, boolean>>({
     accounts: false,
     documents: false,
