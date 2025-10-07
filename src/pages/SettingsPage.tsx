@@ -12,6 +12,7 @@ import {
   DEFAULT_OPENAI_BASE_URL,
   DEFAULT_OPENAI_MODEL,
   listOpenAIModels,
+  normaliseOpenAIBaseUrl,
   validateOpenAIConnection
 } from '../services/openai';
 import type { OpenAIBalanceInfo, OpenAIModelSummary } from '../services/openai';
@@ -22,68 +23,20 @@ import {
   subscribeToIntegrationLogs
 } from '../services/integrationLogger';
 import type { IntegrationLogEntry, IntegrationLogSource, IntegrationLogsState } from '../types/integrationLogs';
+import { DEFAULT_INTEGRATION_LOGS_PAGE_SIZE, MAX_INTEGRATION_LOGS } from '../types/integrationLogs';
 import {
-  DEFAULT_INTEGRATION_LOGS_PAGE_SIZE,
-  MAX_INTEGRATION_LOGS
-} from '../types/integrationLogs';
-
-const MIN_INTEGRATION_LOGS_PAGE_SIZE = 1;
-
-function normaliseLogsPerPage(value?: number | null): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    return DEFAULT_INTEGRATION_LOGS_PAGE_SIZE;
-  }
-  const rounded = Math.floor(value);
-  if (rounded < MIN_INTEGRATION_LOGS_PAGE_SIZE) {
-    return DEFAULT_INTEGRATION_LOGS_PAGE_SIZE;
-  }
-  if (rounded > MAX_INTEGRATION_LOGS) {
-    return MAX_INTEGRATION_LOGS;
-  }
-  return rounded;
-}
-
-interface PaginatedLogsResult<T> {
-  items: T[];
-  page: number;
-  pageSize: number;
-  totalItems: number;
-  totalPages: number;
-  rangeStart: number;
-  rangeEnd: number;
-  hasMultiplePages: boolean;
-}
-
-function paginateLogs<T>(
-  items: readonly T[],
-  requestedPageSize: number,
-  requestedPage: number
-): PaginatedLogsResult<T> {
-  const totalItems = items.length;
-  const pageSize = normaliseLogsPerPage(requestedPageSize);
-  const totalPages = totalItems === 0 ? 1 : Math.max(1, Math.ceil(totalItems / pageSize));
-  const safePage = Math.min(Math.max(Math.floor(requestedPage) || 1, 1), totalPages);
-  const startIndex = totalItems === 0 ? 0 : (safePage - 1) * pageSize;
-  const endIndex = totalItems === 0 ? 0 : Math.min(startIndex + pageSize, totalItems);
-  const pageItems = items.slice(startIndex, endIndex);
-
-  return {
-    items: pageItems,
-    page: safePage,
-    pageSize,
-    totalItems,
-    totalPages,
-    rangeStart: totalItems === 0 ? 0 : startIndex + 1,
-    rangeEnd: totalItems === 0 ? 0 : startIndex + pageItems.length,
-    hasMultiplePages: totalItems > pageSize
-  };
-}
+  MIN_INTEGRATION_LOGS_PAGE_SIZE,
+  normaliseLogsPerPage,
+  paginateLogs
+} from './settingsLogsPagination';
 
 function SettingsPage() {
   const settings = useAppState((state) => state.settings);
   const updateSettings = useAppState((state) => state.updateSettings);
   const [apiKey, setApiKey] = useState(settings.openAIApiKey ?? '');
-  const [openAIBaseUrl, setOpenAIBaseUrl] = useState(settings.openAIBaseUrl ?? DEFAULT_OPENAI_BASE_URL);
+  const [openAIBaseUrl, setOpenAIBaseUrl] = useState(
+    normaliseOpenAIBaseUrl(settings.openAIBaseUrl)
+  );
   const [openAIModel, setOpenAIModel] = useState(settings.openAIModel ?? DEFAULT_OPENAI_MODEL);
   const [availableOpenAIModels, setAvailableOpenAIModels] = useState<OpenAIModelSummary[]>([]);
   const [isLoadingOpenAIModels, setIsLoadingOpenAIModels] = useState(false);
@@ -119,6 +72,10 @@ function SettingsPage() {
   useEffect(() => {
     setLogsPerPage(normaliseLogsPerPage(settings.integrationLogsPageSize));
   }, [settings.integrationLogsPageSize]);
+
+  useEffect(() => {
+    setOpenAIBaseUrl(normaliseOpenAIBaseUrl(settings.openAIBaseUrl));
+  }, [settings.openAIBaseUrl]);
 
   const logsPerPageOptions = useMemo(() => {
     const baseOptions = [
@@ -204,10 +161,14 @@ function SettingsPage() {
       setOpenAIModelsError(null);
 
       try {
+        const trimmedBaseUrl = openAIBaseUrl.trim();
+        const resolvedBaseUrl = trimmedBaseUrl
+          ? normaliseOpenAIBaseUrl(openAIBaseUrl)
+          : undefined;
         const models = await listOpenAIModels(
           {
             apiKey: trimmedKey,
-            baseUrl: openAIBaseUrl.trim() || undefined
+            baseUrl: resolvedBaseUrl
           },
           abortSignal
         );
@@ -460,7 +421,7 @@ function SettingsPage() {
           logFirebaseEvent('Configuração Firebase removida.');
         }
       }
-      const normalizedBaseUrl = openAIBaseUrl.trim();
+      const normalizedBaseUrl = normaliseOpenAIBaseUrl(openAIBaseUrl);
       const normalizedModel = openAIModel.trim();
 
       updateSettings({
@@ -472,7 +433,7 @@ function SettingsPage() {
         firebaseConfig: firebaseSettings,
         integrationLogsPageSize: logsPerPage
       });
-      setOpenAIBaseUrl(normalizedBaseUrl || DEFAULT_OPENAI_BASE_URL);
+      setOpenAIBaseUrl(normalizedBaseUrl);
       setOpenAIModel(normalizedModel || DEFAULT_OPENAI_MODEL);
       setFirebaseConfig(firebaseSettings ? JSON.stringify(firebaseSettings, null, 2) : '');
       setFeedback(
@@ -506,11 +467,15 @@ function SettingsPage() {
     setOpenAIBalanceError(null);
     logOpenAIEvent('A validar ligação à OpenAI…');
     try {
+      const trimmedBaseUrl = openAIBaseUrl.trim();
+      const resolvedBaseUrl = trimmedBaseUrl
+        ? normaliseOpenAIBaseUrl(openAIBaseUrl)
+        : undefined;
       const result = await validateOpenAIConnection(
         {
           apiKey,
-          baseUrl: openAIBaseUrl,
-          model: openAIModel
+          baseUrl: resolvedBaseUrl,
+          model: openAIModel.trim() || DEFAULT_OPENAI_MODEL
         },
         undefined
       );
