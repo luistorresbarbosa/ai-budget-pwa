@@ -1,4 +1,10 @@
-import type { Account, DocumentMetadata, Expense, TimelineEntry } from '../data/models';
+import type {
+  Account,
+  DocumentMetadata,
+  Expense,
+  RecurringExpenseCandidate,
+  TimelineEntry
+} from '../data/models';
 
 const ACCOUNT_IDENTIFIER_KEYS = ['iban', 'ibanNumber', 'accountNumber', 'number', 'identifier'] as const;
 const ACCOUNT_ARRAY_METADATA_KEYS = ['hints', 'accountHints', 'aliases'] as const;
@@ -9,6 +15,86 @@ function normaliseIdentifier(value: string): string {
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9]/gi, '')
     .toLowerCase();
+}
+
+function normaliseDeduplicationComponent(value: string | number | undefined): string | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value.toFixed(2);
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return undefined;
+    }
+    const cleaned = trimmed.replace(/\s+/g, ' ');
+    return cleaned
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
+  }
+  return undefined;
+}
+
+function buildDeduplicationKey(components: (string | number | undefined)[]): string | undefined {
+  const segments = components
+    .map((component) => normaliseDeduplicationComponent(component))
+    .filter((segment): segment is string => Boolean(segment));
+  if (segments.length === 0) {
+    return undefined;
+  }
+  return segments.join('|');
+}
+
+function computeStableHash(value: string): string {
+  let h1 = 0xdeadbeef ^ value.length;
+  let h2 = 0x41c6ce57 ^ value.length;
+
+  for (let i = 0; i < value.length; i += 1) {
+    const ch = value.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507);
+  h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507);
+  h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+
+  const combined = (h2 & 0x1fffff) * 4294967296 + (h1 >>> 0);
+  return combined.toString(36);
+}
+
+export function buildExpenseIdFromDeduplicationKey(prefix: string, deduplicationKey: string): string {
+  const normalised = normaliseIdentifier(deduplicationKey);
+  const hash = computeStableHash(normalised || deduplicationKey);
+  return `${prefix}-${hash}`;
+}
+
+export function buildDocumentExpenseDeduplicationKey(metadata: DocumentMetadata): string | undefined {
+  return buildDeduplicationKey([
+    metadata.sourceType ?? 'fatura',
+    metadata.companyName ?? metadata.originalName,
+    metadata.amount,
+    metadata.currency,
+    metadata.dueDate,
+    metadata.accountHint,
+    metadata.supplierTaxId
+  ]);
+}
+
+export function buildRecurringExpenseDeduplicationKey(
+  candidate: RecurringExpenseCandidate,
+  document: DocumentMetadata
+): string | undefined {
+  return buildDeduplicationKey([
+    document.sourceType ?? 'extracto',
+    document.statementAccountIban ?? document.accountHint,
+    candidate.description,
+    candidate.averageAmount,
+    candidate.currency,
+    candidate.accountHint,
+    candidate.dayOfMonth
+  ]);
 }
 
 function extractAccountCandidates(account: Account): string[] {
@@ -142,6 +228,7 @@ export function deriveExpenseFromDocument(
   const resolvedAccountId = resolveAccountId(metadata.accountHint, accounts, existingExpense?.accountId);
   const resolvedAmount = metadata.amount ?? existingExpense?.amount;
   const resolvedDueDate = metadata.dueDate ?? existingExpense?.dueDate ?? metadata.uploadDate;
+  const deduplicationKey = existingExpense?.deduplicationKey ?? buildDocumentExpenseDeduplicationKey(metadata);
 
   if (!existingExpense && (resolvedAmount === undefined || !metadata.dueDate)) {
     return null;
@@ -153,8 +240,12 @@ export function deriveExpenseFromDocument(
     return existingExpense ?? null;
   }
 
+  const expenseId =
+    existingExpense?.id ??
+    (deduplicationKey ? buildExpenseIdFromDeduplicationKey('exp', deduplicationKey) : `doc-exp-${metadata.id}`);
+
   const expense: Expense = {
-    id: existingExpense?.id ?? `doc-exp-${metadata.id}`,
+    id: expenseId,
     documentId: metadata.id,
     accountId: resolvedAccountId,
     description:
@@ -166,7 +257,8 @@ export function deriveExpenseFromDocument(
     recurrence: existingExpense?.recurrence,
     fixed: existingExpense?.fixed ?? true,
     status: existingExpense?.status ?? 'planeado',
-    supplierId: supplierIdOverride ?? metadata.supplierId ?? existingExpense?.supplierId
+    supplierId: supplierIdOverride ?? metadata.supplierId ?? existingExpense?.supplierId,
+    deduplicationKey: deduplicationKey ?? existingExpense?.deduplicationKey
   };
 
   return expense;

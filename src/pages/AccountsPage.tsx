@@ -35,13 +35,15 @@ interface AccountFormState {
   type: AccountType;
   balance: string;
   currency: string;
+  aliases: string;
 }
 
 const EMPTY_FORM: AccountFormState = {
   name: '',
   type: 'corrente',
   balance: '',
-  currency: 'EUR'
+  currency: 'EUR',
+  aliases: ''
 };
 
 function normaliseCurrency(value: string): string {
@@ -54,6 +56,34 @@ function normaliseCurrency(value: string): string {
 
 function formatNumberInput(value: string): string {
   return value.replace(/[^0-9,.-]/g, '');
+}
+
+function normaliseAlias(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function parseAliases(value: string, referenceName: string): string[] {
+  const reference = normaliseAlias(referenceName);
+  const segments = value
+    .split(/\r?\n|,/)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+  const unique = new Map<string, string>();
+  for (const segment of segments) {
+    const normalised = normaliseAlias(segment);
+    if (!normalised || normalised === reference) {
+      continue;
+    }
+    if (!unique.has(normalised)) {
+      unique.set(normalised, segment);
+    }
+  }
+  return Array.from(unique.values());
 }
 
 export default function AccountsPage() {
@@ -85,7 +115,8 @@ export default function AccountsPage() {
       name: account.name,
       type: account.type,
       balance: account.balance.toString(),
-      currency: account.currency
+      currency: account.currency,
+      aliases: account.metadata?.aliases?.join('\n') ?? ''
     });
     setFeedback(null);
     setError(null);
@@ -121,6 +152,25 @@ export default function AccountsPage() {
     }
 
     const previousAccount = editingId ? accounts.find((item) => item.id === editingId) : undefined;
+    const aliasList = parseAliases(formState.aliases, trimmedName);
+
+    const metadata: Account['metadata'] | undefined = (() => {
+      const base: Account['metadata'] = { ...previousAccount?.metadata };
+      if (aliasList.length > 0) {
+        base.aliases = aliasList;
+      } else if (base.aliases) {
+        delete base.aliases;
+      }
+
+      const hasMetadata = Object.values(base).some((value) => {
+        if (Array.isArray(value)) {
+          return value.length > 0;
+        }
+        return value !== undefined && value !== '';
+      });
+
+      return hasMetadata ? base : undefined;
+    })();
 
     const account: Account = {
       id: editingId ?? `acc-${crypto.randomUUID()}`,
@@ -128,7 +178,7 @@ export default function AccountsPage() {
       type: formState.type,
       balance: Number(parsedBalance.toFixed(2)),
       currency: normaliseCurrency(formState.currency || 'EUR'),
-      metadata: previousAccount?.metadata,
+      metadata,
       validationStatus: previousAccount?.validationStatus ?? 'validada'
     };
 
@@ -190,7 +240,8 @@ export default function AccountsPage() {
       <header className="space-y-2">
         <h1 className="text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl">Contas</h1>
         <p className="max-w-2xl text-sm text-slate-500 sm:text-base">
-          Registe e acompanhe todas as contas para associar correctamente despesas e transferências.
+          Registe e acompanhe todas as contas para associar correctamente despesas e transferências e mantenha
+          alias para reconhecer descrições alternativas em extractos ou faturas.
         </p>
       </header>
 
@@ -266,6 +317,22 @@ export default function AccountsPage() {
               />
             </label>
           </div>
+
+          <label className="block space-y-2 text-sm text-slate-600">
+            <span className="text-xs uppercase tracking-wide text-slate-400">Alias da conta</span>
+            <textarea
+              value={formState.aliases}
+              onChange={(event) =>
+                setFormState((state) => ({ ...state, aliases: event.target.value }))
+              }
+              className="min-h-[96px] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10"
+              placeholder={'IBAN alternativo, Nome no extracto…'}
+            />
+            <p className="text-xs text-slate-500">
+              Introduza um alias por linha ou separados por vírgulas. Ajuda a detectar movimentos que
+              chegam com descrições diferentes.
+            </p>
+          </label>
 
           <div className="flex flex-wrap items-center gap-3">
             <button
@@ -376,6 +443,18 @@ export default function AccountsPage() {
                 <span className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1 font-semibold text-slate-700">
                   {account.balance.toFixed(2)} {account.currency}
                 </span>
+                {account.metadata?.aliases && account.metadata.aliases.length > 0 && (
+                  <div className="flex flex-wrap gap-2 text-xs text-slate-500">
+                    {account.metadata.aliases.map((alias) => (
+                      <span
+                        key={alias}
+                        className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1 font-medium"
+                      >
+                        {alias}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
               <div className="flex items-center gap-3">
                 <button

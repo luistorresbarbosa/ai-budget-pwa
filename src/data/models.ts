@@ -52,6 +52,7 @@ export interface Expense {
   status: 'planeado' | 'pago' | 'em-analise';
   supplierId?: string;
   paidAt?: string;
+  deduplicationKey?: string;
 }
 
 export interface Transfer {
