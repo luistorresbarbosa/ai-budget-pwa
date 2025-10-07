@@ -1,9 +1,29 @@
-import { render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { cleanup, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import SettingsPage from './SettingsPage';
 import { AppStateProvider } from '../state/AppStateContext';
 import type { AppSettings } from '../data/models';
 import { DEFAULT_INTEGRATION_LOGS_PAGE_SIZE_SETTING } from '../data/models';
+import * as integrationLogger from '../services/integrationLogger';
+
+const baseTimestamp = 1_700_000_000_000;
+
+const sampleLogsState = {
+  openai: Array.from({ length: 4 }, (_, index) => ({
+    timestamp: baseTimestamp + index * 1_000,
+    message: `OpenAI evento ${index + 1}`
+  })),
+  firebase: Array.from({ length: 4 }, (_, index) => ({
+    timestamp: baseTimestamp + index * 1_000 + 500,
+    message: `Firebase evento ${index + 1}`
+  }))
+};
+
+const cloneLogsState = () => ({
+  openai: sampleLogsState.openai.map((entry) => ({ ...entry })),
+  firebase: sampleLogsState.firebase.map((entry) => ({ ...entry }))
+});
 
 function renderSettingsPage(settings?: Partial<AppSettings>) {
   const baseSettings: AppSettings = {
@@ -22,6 +42,26 @@ function renderSettingsPage(settings?: Partial<AppSettings>) {
 describe('SettingsPage', () => {
   beforeEach(() => {
     window.localStorage?.clear();
+    vi.restoreAllMocks();
+    vi.spyOn(integrationLogger, 'getIntegrationLogs').mockImplementation(() => cloneLogsState());
+    vi
+      .spyOn(integrationLogger, 'subscribeToIntegrationLogs')
+      .mockImplementation((listener: (state: typeof sampleLogsState) => void) => {
+        listener(cloneLogsState());
+        return () => {};
+      });
+    vi.spyOn(integrationLogger, 'logFirebaseEvent').mockImplementation(() => ({
+      timestamp: Date.now(),
+      message: 'mock'
+    }));
+    vi.spyOn(integrationLogger, 'logOpenAIEvent').mockImplementation(() => ({
+      timestamp: Date.now(),
+      message: 'mock'
+    }));
+  });
+
+  afterEach(() => {
+    cleanup();
   });
 
   it('renderiza inputs para configurar integrações da OpenAI e do Firebase', () => {
@@ -31,5 +71,25 @@ describe('SettingsPage', () => {
     expect(screen.getByLabelText('Endpoint (opcional)')).toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: /Modelo/ })).toBeInTheDocument();
     expect(screen.getByLabelText('Configuração Firebase (JSON)')).toBeInTheDocument();
+  });
+
+  it('actualiza o número de logs visíveis quando o utilizador altera os resultados por página', async () => {
+    const user = userEvent.setup();
+
+    renderSettingsPage();
+
+    const pageSizeSelectors = await screen.findAllByLabelText('Resultados por página');
+    expect(pageSizeSelectors).toHaveLength(1);
+    const [select] = pageSizeSelectors;
+
+    const initialItems = await screen.findAllByRole('listitem');
+    const initialMessages = Array.from(new Set(initialItems.map((item) => item.textContent?.trim() ?? '')));
+    expect(initialMessages).toHaveLength(5);
+
+    await user.selectOptions(select, '10');
+
+    const updatedItems = await screen.findAllByRole('listitem');
+    const updatedMessages = Array.from(new Set(updatedItems.map((item) => item.textContent?.trim() ?? '')));
+    expect(updatedMessages).toHaveLength(sampleLogsState.openai.length + sampleLogsState.firebase.length);
   });
 });
