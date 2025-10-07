@@ -3,6 +3,57 @@ import { logOpenAIEvent } from './integrationLogger';
 const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULT_OPENAI_MODEL = 'gpt-4o-mini';
 
+export function normaliseOpenAIBaseUrl(baseUrl?: string | null): string {
+  const trimmed = (baseUrl ?? '').trim();
+  if (!trimmed) {
+    return DEFAULT_OPENAI_BASE_URL;
+  }
+
+  let candidate = trimmed;
+  if (!/^https?:\/\//i.test(candidate)) {
+    candidate = `https://${candidate}`;
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(candidate);
+  } catch (error) {
+    console.warn('Base URL OpenAI inválida fornecida, a utilizar predefinição.', error);
+    return DEFAULT_OPENAI_BASE_URL;
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+  const isLocalHost = hostname === 'localhost' || hostname.endsWith('.local');
+  if (!hostname || (!isLocalHost && !hostname.includes('.'))) {
+    return DEFAULT_OPENAI_BASE_URL;
+  }
+
+  const isStandardOpenAIHost = hostname === 'api.openai.com';
+
+  if (isStandardOpenAIHost && parsed.protocol !== 'https:') {
+    parsed.protocol = 'https:';
+  }
+
+  const path = parsed.pathname.replace(/\/+$|^\/+/g, '');
+
+  if (isStandardOpenAIHost) {
+    if (!path) {
+      parsed.pathname = '/v1';
+    } else if (!path.startsWith('v1')) {
+      parsed.pathname = `/v1/${path}`.replace(/\/+/g, '/');
+    } else {
+      parsed.pathname = `/${path}`;
+    }
+  } else if (!parsed.pathname) {
+    parsed.pathname = '/';
+  }
+
+  parsed.hash = '';
+
+  const output = parsed.toString().replace(/\/+$|\/$/g, '');
+  return output;
+}
+
 function now(): number {
   if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
     return performance.now();
@@ -32,6 +83,32 @@ function summariseForLog(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+function isAbortError(error: unknown): error is DOMException {
+  return error instanceof DOMException && error.name === 'AbortError';
+}
+
+function mapFetchError(error: unknown, context: string): Error {
+  if (isAbortError(error)) {
+    return error;
+  }
+
+  const rawMessage = error instanceof Error ? error.message : String(error);
+  const lowerCaseMessage = rawMessage.toLowerCase();
+  const looksLikeNetworkIssue =
+    error instanceof TypeError ||
+    lowerCaseMessage.includes('failed to fetch') ||
+    lowerCaseMessage.includes('networkerror') ||
+    lowerCaseMessage.includes('load failed');
+
+  if (looksLikeNetworkIssue) {
+    return new Error(
+      `Não foi possível contactar a OpenAI durante ${context}. Verifique a ligação à Internet e se o endpoint permite pedidos directamente do browser (CORS).`
+    );
+  }
+
+  return new Error(rawMessage);
 }
 
 export interface OpenAIConnectionConfig {
@@ -122,10 +199,7 @@ interface ResponsesRequest {
 }
 
 function resolveBaseUrl(baseUrl?: string): string {
-  if (!baseUrl) {
-    return DEFAULT_OPENAI_BASE_URL;
-  }
-  return baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+  return normaliseOpenAIBaseUrl(baseUrl);
 }
 
 async function parseOpenAIError(response: Response): Promise<string> {
@@ -207,10 +281,13 @@ export async function listOpenAIModels(
       signal
     });
   } catch (error) {
-    logOpenAIEvent('Falha ao obter lista de modelos da OpenAI.', {
-      details: error instanceof Error ? error.message : String(error)
-    });
-    throw error;
+    const mapped = mapFetchError(error, 'o carregamento da lista de modelos');
+    if (!isAbortError(mapped)) {
+      logOpenAIEvent('Falha ao obter lista de modelos da OpenAI.', {
+        details: error instanceof Error ? error.message : String(error)
+      });
+    }
+    throw mapped;
   }
 
   if (!response.ok) {
@@ -273,10 +350,13 @@ export async function fetchOpenAIBalance(
       signal
     });
   } catch (error) {
-    logOpenAIEvent('Falha ao obter saldo disponível da OpenAI.', {
-      details: error instanceof Error ? error.message : String(error)
-    });
-    throw error;
+    const mapped = mapFetchError(error, 'a leitura do saldo disponível');
+    if (!isAbortError(mapped)) {
+      logOpenAIEvent('Falha ao obter saldo disponível da OpenAI.', {
+        details: error instanceof Error ? error.message : String(error)
+      });
+    }
+    throw mapped;
   }
 
   if (!response.ok) {
@@ -360,10 +440,13 @@ async function uploadFileToOpenAI(
       signal
     });
   } catch (error) {
-    logOpenAIEvent('Falha ao enviar ficheiro para a OpenAI.', {
-      details: error instanceof Error ? error.message : String(error)
-    });
-    throw error;
+    const mapped = mapFetchError(error, 'o envio do ficheiro');
+    if (!isAbortError(mapped)) {
+      logOpenAIEvent('Falha ao enviar ficheiro para a OpenAI.', {
+        details: error instanceof Error ? error.message : String(error)
+      });
+    }
+    throw mapped;
   }
 
   if (!response.ok) {
@@ -451,10 +534,13 @@ async function callOpenAIResponses(
       signal
     });
   } catch (error) {
-    logOpenAIEvent('Falha ao contactar a OpenAI (endpoint /responses).', {
-      details: error instanceof Error ? error.message : String(error)
-    });
-    throw error;
+    const mapped = mapFetchError(error, 'a chamada ao endpoint /responses');
+    if (!isAbortError(mapped)) {
+      logOpenAIEvent('Falha ao contactar a OpenAI (endpoint /responses).', {
+        details: error instanceof Error ? error.message : String(error)
+      });
+    }
+    throw mapped;
   }
 
   if (!response.ok) {
