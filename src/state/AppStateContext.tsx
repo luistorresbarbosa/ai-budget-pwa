@@ -12,6 +12,7 @@ import type {
   AppSettings,
   DocumentMetadata,
   Expense,
+  Supplier,
   TimelineEntry,
   Transfer
 } from '../data/models';
@@ -21,6 +22,7 @@ import { loadPersistedSettings, persistSettings } from './settingsPersistence';
 export interface AppState {
   accounts: Account[];
   expenses: Expense[];
+  suppliers: Supplier[];
   transfers: Transfer[];
   documents: DocumentMetadata[];
   timeline: TimelineEntry[];
@@ -28,15 +30,18 @@ export interface AppState {
   addAccount: (account: Account) => void;
   addDocument: (doc: DocumentMetadata) => void;
   addExpense: (expense: Expense) => void;
+  addSupplier: (supplier: Supplier) => void;
   addTransfer: (transfer: Transfer) => void;
   addTimelineEntry: (entry: TimelineEntry) => void;
   removeAccount: (accountId: string) => void;
   removeDocument: (documentId: string) => void;
   removeExpense: (expenseId: string) => void;
+  removeSupplier: (supplierId: string) => void;
   removeTransfer: (transferId: string) => void;
   removeTimelineEntry: (entryId: string) => void;
   setAccounts: (accounts: Account[]) => void;
   setExpenses: (expenses: Expense[]) => void;
+  setSuppliers: (suppliers: Supplier[]) => void;
   setTransfers: (transfers: Transfer[]) => void;
   setDocuments: (documents: DocumentMetadata[]) => void;
   setTimeline: (timeline: TimelineEntry[]) => void;
@@ -61,6 +66,7 @@ export const createAppStore = (initialState?: Partial<AppState>) =>
   createStore<AppState>((set) => ({
     accounts: initialState?.accounts ?? [],
     expenses: initialState?.expenses ?? [],
+    suppliers: initialState?.suppliers ?? [],
     transfers: initialState?.transfers ?? [],
     documents: initialState?.documents ?? [],
     timeline: initialState?.timeline ?? [],
@@ -76,6 +82,10 @@ export const createAppStore = (initialState?: Partial<AppState>) =>
     addExpense: (expense) =>
       set((state) => ({
         expenses: [expense, ...state.expenses.filter((existing) => existing.id !== expense.id)]
+      })),
+    addSupplier: (supplier) =>
+      set((state) => ({
+        suppliers: [supplier, ...state.suppliers.filter((existing) => existing.id !== supplier.id)]
       })),
     addTransfer: (transfer) =>
       set((state) => ({
@@ -97,6 +107,10 @@ export const createAppStore = (initialState?: Partial<AppState>) =>
       set((state) => ({
         expenses: state.expenses.filter((expense) => expense.id !== expenseId)
       })),
+    removeSupplier: (supplierId) =>
+      set((state) => ({
+        suppliers: state.suppliers.filter((supplier) => supplier.id !== supplierId)
+      })),
     removeTransfer: (transferId) =>
       set((state) => ({
         transfers: state.transfers.filter((transfer) => transfer.id !== transferId)
@@ -107,6 +121,7 @@ export const createAppStore = (initialState?: Partial<AppState>) =>
       })),
     setAccounts: (accounts) => set(() => ({ accounts })),
     setExpenses: (expenses) => set(() => ({ expenses })),
+    setSuppliers: (suppliers) => set(() => ({ suppliers })),
     setTransfers: (transfers) => set(() => ({ transfers })),
     setDocuments: (documents) => set(() => ({ documents })),
     setTimeline: (timeline) => set(() => ({ timeline })),

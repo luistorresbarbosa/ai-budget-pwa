@@ -3,12 +3,37 @@ import { DEFAULT_INTEGRATION_LOGS_PAGE_SIZE } from '../types/integrationLogs';
 
 export type AccountType = 'corrente' | 'poupanca' | 'cartao' | 'outro';
 
+export type AccountValidationStatus = 'validada' | 'validacao-manual';
+
+export interface AccountMetadata {
+  iban?: string;
+  ibanNumber?: string;
+  accountNumber?: string;
+  number?: string;
+  identifier?: string;
+  hints?: string[];
+}
+
 export interface Account {
   id: string;
   name: string;
   type: AccountType;
   balance: number;
   currency: string;
+  metadata?: AccountMetadata;
+  validationStatus?: AccountValidationStatus;
+}
+
+export interface SupplierMetadata {
+  taxId?: string;
+  accountHints?: string[];
+  notes?: string;
+}
+
+export interface Supplier {
+  id: string;
+  name: string;
+  metadata?: SupplierMetadata;
 }
 
 export interface Expense {
@@ -23,6 +48,8 @@ export interface Expense {
   recurrence?: 'mensal' | 'anual' | 'semestral' | 'pontual';
   fixed: boolean;
   status: 'planeado' | 'pago' | 'em-analise';
+  supplierId?: string;
+  paidAt?: string;
 }
 
 export interface Transfer {
@@ -49,6 +76,32 @@ export interface DocumentMetadata {
   expenseType?: string;
   notes?: string;
   extractedAt?: string;
+  recurringExpenses?: RecurringExpenseCandidate[];
+  supplierId?: string;
+  supplierTaxId?: string;
+  statementAccountIban?: string;
+  statementSettlements?: StatementSettlement[];
+}
+
+export interface RecurringExpenseCandidate {
+  description: string;
+  averageAmount?: number;
+  currency?: string;
+  dayOfMonth?: number;
+  accountHint?: string;
+  monthsObserved?: string[];
+  notes?: string;
+}
+
+export interface StatementSettlement {
+  description?: string;
+  amount?: number;
+  currency?: string;
+  settledOn?: string;
+  documentIdHint?: string;
+  expenseIdHint?: string;
+  supplierName?: string;
+  supplierTaxId?: string;
 }
 
 export interface TimelineEntry {

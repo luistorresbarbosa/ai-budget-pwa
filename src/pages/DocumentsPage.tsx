@@ -17,13 +17,8 @@ import type { DocumentMetadata } from '../data/models';
 import { extractPdfMetadata, isPdfFile } from '../services/pdfParser';
 import { persistDocumentMetadata, removeDocumentMetadata } from '../services/documents';
 import { validateFirebaseConfig } from '../services/firebase';
-import { persistExpense } from '../services/expenses';
-import { persistTimelineEntry } from '../services/timeline';
-import {
-  deriveExpenseFromDocument,
-  deriveTimelineEntryFromExpense,
-  findAccountByHint
-} from '../services/expenseDerivation';
+import { processDocumentForDerivedEntities } from '../services/documentAutomation';
+import { findAccountByHint } from '../services/expenseDerivation';
 
 interface UploadFeedback {
   type: 'success' | 'error' | 'info';
@@ -43,8 +38,11 @@ function DocumentsPage() {
   const expenses = useAppState((state) => state.expenses);
   const timelineEntries = useAppState((state) => state.timeline);
   const accounts = useAppState((state) => state.accounts);
+  const suppliers = useAppState((state) => state.suppliers);
+  const addAccount = useAppState((state) => state.addAccount);
   const addDocument = useAppState((state) => state.addDocument);
   const addExpense = useAppState((state) => state.addExpense);
+  const addSupplier = useAppState((state) => state.addSupplier);
   const removeDocument = useAppState((state) => state.removeDocument);
   const addTimelineEntry = useAppState((state) => state.addTimelineEntry);
   const settings = useAppState((state) => state.settings);
@@ -126,45 +124,67 @@ function DocumentsPage() {
             }
           : undefined
       });
+      const isStatement = extraction.sourceType === 'extracto';
+      const amount = typeof extraction.amount === 'number' && !isStatement ? extraction.amount : undefined;
+      const dueDate = typeof extraction.dueDate === 'string' && !isStatement ? extraction.dueDate : undefined;
+      const accountHint = typeof extraction.accountHint === 'string' ? extraction.accountHint : undefined;
+      const companyName =
+        typeof extraction.companyName === 'string' && extraction.companyName.trim().length > 0
+          ? extraction.companyName
+          : existingDocument?.companyName;
+      const expenseType =
+        typeof extraction.expenseType === 'string' && extraction.expenseType.trim().length > 0
+          ? extraction.expenseType
+          : existingDocument?.expenseType;
+      const notes = typeof extraction.notes === 'string' ? extraction.notes : undefined;
+
       const metadata: DocumentMetadata = {
         id: existingDocument?.id ?? crypto.randomUUID(),
         originalName: file.name,
         uploadDate: nowIsoString,
         sourceType: extraction.sourceType ?? 'fatura',
-        amount: extraction.amount,
-        currency: extraction.currency,
-        dueDate: extraction.dueDate,
-        accountHint: extraction.accountHint,
-        companyName: extraction.companyName ?? existingDocument?.companyName,
-        expenseType: extraction.expenseType ?? existingDocument?.expenseType,
-        notes: extraction.notes,
-        extractedAt: new Date().toISOString()
+        amount,
+        currency: extraction.currency ?? existingDocument?.currency,
+        dueDate,
+        accountHint,
+        companyName,
+        expenseType,
+        notes,
+        extractedAt: new Date().toISOString(),
+        recurringExpenses: isStatement ? extraction.recurringExpenses ?? [] : existingDocument?.recurringExpenses,
+        supplierId: existingDocument?.supplierId,
+        supplierTaxId:
+          typeof extraction.supplierTaxId === 'string' && extraction.supplierTaxId.trim().length > 0
+            ? extraction.supplierTaxId
+            : existingDocument?.supplierTaxId,
+        statementAccountIban: isStatement
+          ? extraction.statementAccountIban ?? existingDocument?.statementAccountIban
+          : existingDocument?.statementAccountIban,
+        statementSettlements: isStatement
+          ? extraction.statementSettlements ?? []
+          : existingDocument?.statementSettlements
       };
 
       await persistDocumentMetadata(metadata, settings.firebaseConfig);
       addDocument(metadata);
       setPage(1);
 
-      const existingExpense = expenses.find((expense) => expense.documentId === metadata.id);
-      const derivedExpense = deriveExpenseFromDocument(metadata, accounts, existingExpense);
-
-      if (derivedExpense) {
-        await persistExpense(derivedExpense, settings.firebaseConfig);
-        addExpense(derivedExpense);
-
-        const existingTimelineEntry = timelineEntries.find(
-          (entry) => entry.linkedExpenseId === derivedExpense.id
-        );
-        const derivedTimelineEntry = deriveTimelineEntryFromExpense(
-          derivedExpense,
-          existingTimelineEntry
-        );
-
-        if (derivedTimelineEntry) {
-          await persistTimelineEntry(derivedTimelineEntry, settings.firebaseConfig);
-          addTimelineEntry(derivedTimelineEntry);
+      await processDocumentForDerivedEntities(
+        {
+          document: metadata,
+          accounts,
+          expenses,
+          suppliers,
+          timelineEntries,
+          firebaseConfig: settings.firebaseConfig
+        },
+        {
+          onAccountUpsert: addAccount,
+          onExpenseUpsert: addExpense,
+          onSupplierUpsert: addSupplier,
+          onTimelineUpsert: addTimelineEntry
         }
-      }
+      );
       setFeedback({
         type: 'success',
         message: existingDocument
@@ -305,7 +325,15 @@ function DocumentsPage() {
         </div>
         <div className="grid gap-3">
           {paginatedDocuments.map((doc) => {
-            const matchedAccount = findAccountByHint(doc.accountHint, accounts);
+            const accountHint = doc.sourceType === 'extracto'
+              ? doc.statementAccountIban ?? doc.accountHint
+              : doc.accountHint;
+            const matchedAccount = findAccountByHint(accountHint, accounts);
+            const supplier = doc.supplierId
+              ? suppliers.find((item) => item.id === doc.supplierId)
+              : undefined;
+            const supplierLabel = supplier?.name ?? doc.companyName;
+            const shouldShowAmount = doc.sourceType !== 'extracto' && typeof doc.amount === 'number';
             return (
               <motion.article
                 key={doc.id}
@@ -336,10 +364,10 @@ function DocumentsPage() {
                     </button>
                   </div>
                   <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
-                    {doc.companyName && (
+                    {supplierLabel && (
                       <span className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
                         <Building2 className="h-4 w-4 text-slate-400" />
-                        {doc.companyName}
+                        {supplierLabel}
                       </span>
                     )}
                     {doc.expenseType && (
@@ -348,16 +376,16 @@ function DocumentsPage() {
                         {doc.expenseType}
                       </span>
                     )}
-                    {doc.accountHint && (
+                    {accountHint && (
                       <span className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
                         <Landmark className="h-4 w-4 text-slate-400" />
-                        {matchedAccount ? matchedAccount.name : doc.accountHint}
+                        {matchedAccount ? matchedAccount.name : accountHint}
                       </span>
                     )}
-                    {doc.amount && (
+                    {shouldShowAmount && (
                       <span className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
                         <Euro className="h-4 w-4 text-slate-400" />
-                        {doc.amount.toFixed(2)} {doc.currency}
+                        {doc.amount!.toFixed(2)} {doc.currency}
                       </span>
                     )}
                     {doc.dueDate && (

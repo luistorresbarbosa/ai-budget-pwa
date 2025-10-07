@@ -1,4 +1,4 @@
-import type { Account, DocumentMetadata, Expense, TimelineEntry, Transfer } from './models';
+import type { Account, DocumentMetadata, Expense, Supplier, TimelineEntry, Transfer } from './models';
 
 export const mockAccounts: Account[] = [
   {
@@ -6,14 +6,16 @@ export const mockAccounts: Account[] = [
     name: 'Conta Corrente',
     type: 'corrente',
     balance: 2350.23,
-    currency: 'EUR'
+    currency: 'EUR',
+    validationStatus: 'validada'
   },
   {
     id: 'acc-2',
     name: 'Poupança Objetivos',
     type: 'poupanca',
     balance: 5400,
-    currency: 'EUR'
+    currency: 'EUR',
+    validationStatus: 'validada'
   }
 ];
 
@@ -28,7 +30,8 @@ export const mockExpenses: Expense[] = [
     dueDate: new Date().toISOString(),
     recurrence: 'mensal',
     fixed: true,
-    status: 'planeado'
+    status: 'planeado',
+    supplierId: 'sup-1'
   },
   {
     id: 'exp-2',
@@ -40,7 +43,9 @@ export const mockExpenses: Expense[] = [
     dueDate: new Date().toISOString(),
     recurrence: 'mensal',
     fixed: true,
-    status: 'pago'
+    status: 'pago',
+    supplierId: 'sup-2',
+    paidAt: new Date().toISOString()
   }
 ];
 
@@ -69,7 +74,22 @@ export const mockDocuments: DocumentMetadata[] = [
     accountHint: 'Conta Corrente',
     companyName: 'Energia Lisboa',
     expenseType: 'Luz',
-    extractedAt: new Date().toISOString()
+    extractedAt: new Date().toISOString(),
+    supplierId: 'sup-1'
+  }
+];
+
+export const mockSuppliers: Supplier[] = [
+  {
+    id: 'sup-1',
+    name: 'Energia Lisboa',
+    metadata: {
+      accountHints: ['PT50-1234']
+    }
+  },
+  {
+    id: 'sup-2',
+    name: 'Move+ Ginásio'
   }
 ];
 

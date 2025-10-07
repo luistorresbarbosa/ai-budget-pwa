@@ -123,7 +123,8 @@ function humaniseDocumentName(originalName: string): string {
 export function deriveExpenseFromDocument(
   metadata: DocumentMetadata,
   accounts: Account[],
-  existingExpense?: Expense
+  existingExpense?: Expense,
+  supplierIdOverride?: string
 ): Expense | null {
   const resolvedAccountId = resolveAccountId(metadata.accountHint, accounts, existingExpense?.accountId);
   const resolvedAmount = metadata.amount ?? existingExpense?.amount;
@@ -151,7 +152,8 @@ export function deriveExpenseFromDocument(
     dueDate: resolvedDueDate,
     recurrence: existingExpense?.recurrence,
     fixed: existingExpense?.fixed ?? true,
-    status: existingExpense?.status ?? 'planeado'
+    status: existingExpense?.status ?? 'planeado',
+    supplierId: supplierIdOverride ?? metadata.supplierId ?? existingExpense?.supplierId
   };
 
   return expense;
@@ -166,7 +168,7 @@ export function deriveTimelineEntryFromExpense(
   }
 
   const entry: TimelineEntry = {
-    id: existingEntry?.id ?? `doc-timeline-${expense.documentId ?? expense.id}`,
+    id: existingEntry?.id ?? `doc-timeline-${expense.id}`,
     date: expense.dueDate,
     type: 'despesa',
     description: existingEntry?.description ?? expense.description,
