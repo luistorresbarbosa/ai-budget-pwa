@@ -158,17 +158,31 @@ function ensureSupplier(document: DocumentMetadata, existingSuppliers: Supplier[
   const matchedById = document.supplierId
     ? existingSuppliers.find((supplier) => supplier.id === document.supplierId)
     : undefined;
-  const matchedByName = normalisedName
-    ? existingSuppliers.find((supplier) => normaliseSupplierName(supplier.name) === normalisedName)
-    : undefined;
 
-  const matched = matchedById ?? matchedByName;
+  let matchedByCanonicalName: Supplier | undefined;
+  let matchedByAlias: Supplier | undefined;
+
+  if (!matchedById && normalisedName) {
+    matchedByCanonicalName = existingSuppliers.find(
+      (supplier) => normaliseSupplierName(supplier.name) === normalisedName
+    );
+
+    if (!matchedByCanonicalName) {
+      matchedByAlias = existingSuppliers.find((supplier) => supplierMatchesName(supplier, baseName));
+    }
+  }
+
+  const matched = matchedById ?? matchedByCanonicalName ?? matchedByAlias;
 
   if (matched) {
     const metadata = mergeSupplierMetadata(document, matched);
     const metadataSerialised = metadata ? JSON.stringify(metadata) : null;
     const existingMetadataSerialised = matched.metadata ? JSON.stringify(matched.metadata) : null;
-    const nameChanged = baseName ? matched.name.trim() !== baseName.trim() : false;
+    const matchedViaAlias = Boolean(
+      matchedByAlias && matchedByAlias.id === matched.id && matchedByAlias !== matchedByCanonicalName
+    );
+    const nextName = matchedViaAlias && baseName ? matched.name : baseName ?? matched.name;
+    const nameChanged = nextName.trim() !== matched.name.trim();
     const requiresUpdate = metadataSerialised !== existingMetadataSerialised || nameChanged;
 
     if (!requiresUpdate) {
@@ -177,7 +191,7 @@ function ensureSupplier(document: DocumentMetadata, existingSuppliers: Supplier[
 
     const updatedSupplier: Supplier = {
       ...matched,
-      name: baseName ?? matched.name,
+      name: nextName,
       metadata: metadata ?? matched.metadata
     };
 
@@ -217,7 +231,7 @@ function ensureSupplierForCandidate(
     return { supplier: undefined, suppliers: existingSuppliers, created: false, updated: false };
   }
 
-  const matched = existingSuppliers.find((supplier) => normaliseSupplierName(supplier.name) === normaliseSupplierName(name));
+  const matched = existingSuppliers.find((supplier) => supplierMatchesName(supplier, name));
   if (matched) {
     return { supplier: matched, suppliers: existingSuppliers, created: false, updated: false };
   }
@@ -295,7 +309,40 @@ function buildAutoSupplierId(name: string | undefined, documentId: string, exist
 }
 
 function normaliseSupplierName(value: string | undefined): string {
-  return value?.trim().toLowerCase() ?? '';
+  return (
+    value
+      ?.normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase() ?? ''
+  );
+}
+
+function buildSupplierNameCandidates(supplier: Supplier): string[] {
+  const candidates = new Set<string>();
+  if (supplier.name?.trim()) {
+    candidates.add(supplier.name.trim());
+  }
+  const aliases = supplier.metadata?.aliases;
+  if (Array.isArray(aliases)) {
+    for (const alias of aliases) {
+      if (typeof alias === 'string' && alias.trim()) {
+        candidates.add(alias.trim());
+      }
+    }
+  }
+  return Array.from(candidates);
+}
+
+function supplierMatchesName(supplier: Supplier, candidateName: string | undefined): boolean {
+  const target = normaliseSupplierName(candidateName);
+  if (!target) {
+    return false;
+  }
+  return buildSupplierNameCandidates(supplier).some(
+    (candidate) => normaliseSupplierName(candidate) === target
+  );
 }
 
 function mergeSupplierMetadata(
@@ -315,14 +362,46 @@ function mergeSupplierMetadata(
     accountHints.add(document.statementAccountIban);
   }
 
+  const aliases = new Set<string>();
+  existing?.metadata?.aliases?.forEach((alias) => {
+    if (typeof alias === 'string' && alias.trim()) {
+      aliases.add(alias.trim());
+    }
+  });
+
+  const canonicalName = existing?.name ?? document.companyName ?? document.originalName ?? '';
+  const canonicalNormalised = normaliseSupplierName(canonicalName);
+  const addAliasCandidate = (value: string | undefined) => {
+    if (!value) {
+      return;
+    }
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return;
+    }
+    const normalised = normaliseSupplierName(trimmed);
+    if (normalised && normalised !== canonicalNormalised) {
+      aliases.add(trimmed);
+    }
+  };
+
+  addAliasCandidate(document.companyName);
+  addAliasCandidate(document.originalName);
+  if (Array.isArray(document.statementSettlements)) {
+    for (const settlement of document.statementSettlements) {
+      addAliasCandidate(settlement?.supplierName);
+    }
+  }
+
   const metadata: Supplier['metadata'] = {
     ...existing?.metadata,
     taxId: document.supplierTaxId ?? existing?.metadata?.taxId,
     accountHints: accountHints.size > 0 ? Array.from(accountHints) : existing?.metadata?.accountHints,
+    aliases: aliases.size > 0 ? Array.from(aliases) : existing?.metadata?.aliases,
     notes: existing?.metadata?.notes
   };
 
-  if (!metadata.taxId && !metadata.accountHints && !metadata.notes) {
+  if (!metadata.taxId && !metadata.accountHints && !metadata.notes && !metadata.aliases) {
     return existing?.metadata;
   }
 

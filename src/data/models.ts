@@ -12,6 +12,7 @@ export interface AccountMetadata {
   number?: string;
   identifier?: string;
   hints?: string[];
+  aliases?: string[];
 }
 
 export interface Account {
@@ -27,6 +28,7 @@ export interface Account {
 export interface SupplierMetadata {
   taxId?: string;
   accountHints?: string[];
+  aliases?: string[];
   notes?: string;
 }
 

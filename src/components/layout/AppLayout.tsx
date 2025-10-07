@@ -3,12 +3,12 @@ import type { PropsWithChildren } from 'react';
 import { motion } from 'framer-motion';
 import type { LucideIcon } from 'lucide-react';
 import {
+  Building2,
   CalendarDays,
   Files,
   ReceiptText,
   RefreshCcw,
   Settings,
-  UploadCloud,
   Wallet2,
   PiggyBank
 } from 'lucide-react';
@@ -16,6 +16,7 @@ import {
 const links: Array<{ to: string; label: string; icon: LucideIcon }> = [
   { to: '/documents', label: 'Documentos', icon: Files },
   { to: '/accounts', label: 'Contas', icon: PiggyBank },
+  { to: '/suppliers', label: 'Fornecedores', icon: Building2 },
   { to: '/transfers', label: 'Transferências', icon: RefreshCcw },
   { to: '/timeline', label: 'Timeline', icon: CalendarDays },
   { to: '/expenses', label: 'Despesas', icon: Wallet2 },
@@ -36,7 +37,7 @@ function NavigationList({
       className={
         variant === 'sidebar'
           ? 'flex flex-col gap-1'
-          : 'grid grid-cols-5 gap-2 text-[11px] font-medium'
+          : 'grid grid-cols-3 gap-2 text-[11px] font-medium sm:grid-cols-6'
       }
     >
       {links.map(({ icon: Icon, ...link }) => (
