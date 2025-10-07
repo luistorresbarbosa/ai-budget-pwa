@@ -1,0 +1,248 @@
+{
+  "name": "Gmail Invoice Extractor",
+  "nodes": [
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [
+            {
+              "mode": "everyX",
+              "unit": "minutes",
+              "value": 15
+            }
+          ]
+        }
+      },
+      "id": "1",
+      "name": "Cron",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 2,
+      "position": [
+        -320,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "getAll",
+        "returnAll": true,
+        "additionalFields": {
+          "q": "has:attachment newer_than:7d (subject:fatura OR subject:invoice)",
+          "format": "metadata",
+          "labelIds": [
+            "INBOX"
+          ]
+        }
+      },
+      "id": "2",
+      "name": "Fetch Gmail",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [
+        -80,
+        0
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "Gmail OAuth2 Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "const itemsWithAttachments = []\nfor (const item of items) {\n  const attachments = item.json?.payload?.parts || []\n  const attachmentParts = attachments.filter(part => part.filename && part.body?.attachmentId)\n  for (const part of attachmentParts) {\n    itemsWithAttachments.push({\n      json: {\n        messageId: item.json.id,\n        threadId: item.json.threadId,\n        snippet: item.json.snippet,\n        attachmentId: part.body.attachmentId,\n        attachmentName: part.filename,\n        mimeType: part.mimeType,\n        invoiceSource: item.json.payload?.headers?.find(h => h.name === 'From')?.value || '',\n        invoiceDate: item.json.payload?.headers?.find(h => h.name === 'Date')?.value || ''\n      }\n    })\n  }\n}\nreturn itemsWithAttachments"
+      },
+      "id": "3",
+      "name": "Filter Attachments",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 2,
+      "position": [
+        160,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "getAttachment",
+        "messageId": "={{$json.messageId}}",
+        "attachmentId": "={{$json.attachmentId}}"
+      },
+      "id": "4",
+      "name": "Download Attachment",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [
+        420,
+        0
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "Gmail OAuth2 Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Merge attachment binary into the original metadata\nreturn items.map(item => {\n  const { json, binary } = item\n  const attachmentName = json.attachmentName || 'invoice.pdf'\n  return {\n    json: {\n      messageId: json.messageId,\n      threadId: json.threadId,\n      snippet: json.snippet,\n      attachmentName,\n      mimeType: json.mimeType || 'application/pdf',\n      invoiceSource: json.invoiceSource,\n      invoiceDate: json.invoiceDate\n    },\n    binary: {\n      data: {\n        data: binary.data.data,\n        fileName: attachmentName,\n        mimeType: json.mimeType || 'application/pdf'\n      }\n    }\n  }\n})"
+      },
+      "id": "5",
+      "name": "Prepare Binary",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 2,
+      "position": [
+        680,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.INVOICE_PARSER_ENDPOINT}}",
+        "options": {},
+        "allowUnauthorizedCerts": false,
+        "jsonParameters": true,
+        "responseFormat": "json",
+        "bodyParametersJson": "={\n  \"fileName\": $json.attachmentName,\n  \"mimeType\": $json.mimeType,\n  \"fileData\": $binary.data.data,\n  \"source\": $json.invoiceSource,\n  \"emailSnippet\": $json.snippet,\n  \"emailDate\": $json.invoiceDate\n}"
+      },
+      "id": "6",
+      "name": "Extract Invoice Data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        940,
+        0
+      ],
+      "credentials": {
+        "httpBasicAuth": {
+          "name": "Invoice Parser Credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "const now = new Date().toISOString()\nreturn items.map(item => {\n  const payload = item.json || {}\n  return {\n    json: {\n      fields: {\n        createdAt: { timestampValue: now },\n        updatedAt: { timestampValue: now },\n        emailMessageId: { stringValue: payload.messageId },\n        threadId: { stringValue: payload.threadId || '' },\n        source: { stringValue: payload.source || '' },\n        issueDate: { stringValue: payload.invoiceDate || '' },\n        total: payload.total ? { doubleValue: payload.total } : { nullValue: null },\n        currency: payload.currency ? { stringValue: payload.currency } : { nullValue: null },\n        supplierTaxId: payload.supplierTaxId ? { stringValue: payload.supplierTaxId } : { nullValue: null },\n        customerTaxId: payload.customerTaxId ? { stringValue: payload.customerTaxId } : { nullValue: null },\n        lineItems: payload.lineItems ? { arrayValue: { values: payload.lineItems.map(item => ({ mapValue: { fields: {\n          description: item.description ? { stringValue: item.description } : { nullValue: null },\n          quantity: item.quantity !== undefined ? { doubleValue: item.quantity } : { nullValue: null },\n          unitPrice: item.unitPrice !== undefined ? { doubleValue: item.unitPrice } : { nullValue: null },\n          total: item.total !== undefined ? { doubleValue: item.total } : { nullValue: null }\n        } } })) } } : { arrayValue: { values: [] } },\n        rawParserResponse: { stringValue: JSON.stringify(payload) }\n      }\n    }\n  }\n})"
+      },
+      "id": "7",
+      "name": "Shape Firestore Payload",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.FIRESTORE_BASE_URL}}/documents/invoices",
+        "method": "POST",
+        "authentication": "oAuth2",
+        "jsonParameters": true,
+        "responseFormat": "json",
+        "bodyParametersJson": "={{$json}}"
+      },
+      "id": "8",
+      "name": "Upload to Firestore",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        1460,
+        0
+      ],
+      "credentials": {
+        "googleOAuth2Api": {
+          "name": "Firebase Service Account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Cron": {
+      "main": [
+        [
+          {
+            "node": "Fetch Gmail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Gmail": {
+      "main": [
+        [
+          {
+            "node": "Filter Attachments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Attachments": {
+      "main": [
+        [
+          {
+            "node": "Download Attachment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Attachment": {
+      "main": [
+        [
+          {
+            "node": "Prepare Binary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Binary": {
+      "main": [
+        [
+          {
+            "node": "Extract Invoice Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Invoice Data": {
+      "main": [
+        [
+          {
+            "node": "Shape Firestore Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape Firestore Payload": {
+      "main": [
+        [
+          {
+            "node": "Upload to Firestore",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    "gmail",
+    "invoices",
+    "firebase"
+  ]
+}
