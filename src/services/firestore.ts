@@ -12,10 +12,27 @@ import {
 } from 'firebase/firestore';
 import { logFirebaseEvent } from './integrationLogger';
 
+function sanitizeValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => sanitizeValue(item))
+      .filter((item) => item !== undefined);
+  }
+  if (value && typeof value === 'object') {
+    if (Object.prototype.toString.call(value) !== '[object Object]') {
+      return value;
+    }
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([, nestedValue]) => nestedValue !== undefined)
+        .map(([key, nestedValue]) => [key, sanitizeValue(nestedValue)])
+    );
+  }
+  return value;
+}
+
 function sanitizeFirestoreData<T extends Record<string, unknown>>(data: T): T {
-  return Object.fromEntries(
-    Object.entries(data).filter(([, value]) => value !== undefined)
-  ) as T;
+  return sanitizeValue(data) as T;
 }
 
 export type WithOptionalId<T> = T & { id?: string };

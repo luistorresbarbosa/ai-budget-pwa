@@ -73,6 +73,10 @@ async function extractWithOpenAI(request: PdfExtractionRequest): Promise<PdfExtr
     companyName: extraction.companyName,
     expenseType: extraction.expenseType,
     notes: extraction.notes,
+    recurringExpenses: extraction.recurringExpenses,
+    supplierTaxId: extraction.supplierTaxId,
+    statementAccountIban: extraction.statementAccountIban,
+    statementSettlements: extraction.statementSettlements,
     rawResponse: extraction.rawResponse
   } satisfies PdfExtractionResult;
 }
