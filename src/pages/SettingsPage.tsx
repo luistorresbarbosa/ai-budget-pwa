@@ -596,7 +596,7 @@ function SettingsPage() {
         transition={{ delay: 0.1, duration: 0.35, ease: 'easeOut' }}
         className="space-y-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
       >
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           <div className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 shadow-sm">
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">OpenAI</p>
             <label className="block space-y-2 text-sm text-slate-600">
@@ -712,6 +712,45 @@ function SettingsPage() {
             </AnimatePresence>
           </div>
           <div className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 shadow-sm">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Firebase</p>
+            <p className="text-xs text-slate-500">
+              Cole aqui a configuração Web do Firebase em formato JSON para activar a sincronização.
+            </p>
+            <label className="block space-y-2 text-sm text-slate-600">
+              <span className="text-xs uppercase tracking-wide text-slate-400">Configuração Firebase (JSON)</span>
+              <textarea
+                rows={6}
+                value={firebaseConfig}
+                onChange={(event) => setFirebaseConfig(event.target.value)}
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-900 focus:ring-slate-900/10"
+              />
+            </label>
+            <div className="space-y-3">
+              <button
+                type="button"
+                onClick={handleTestFirebase}
+                disabled={isTestingFirebase}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:border-slate-400 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900 xl:w-auto"
+              >
+                {isTestingFirebase ? 'A validar…' : 'Testar ligação Firebase'}
+              </button>
+              <AnimatePresence>
+                {firebaseTestFeedback && (
+                  <motion.p
+                    key={firebaseTestFeedback}
+                    initial={{ opacity: 0, y: -6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -6 }}
+                    transition={{ duration: 0.25 }}
+                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600 shadow-sm"
+                  >
+                    {firebaseTestFeedback}
+                  </motion.p>
+                )}
+              </AnimatePresence>
+            </div>
+          </div>
+          <div className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 shadow-sm">
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Preferências</p>
             <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 shadow-sm">
               <input
@@ -723,39 +762,6 @@ function SettingsPage() {
               Detectar automaticamente despesas fixas
             </label>
           </div>
-        </div>
-        <label className="block space-y-2 text-sm text-slate-600">
-          <span className="text-xs uppercase tracking-wide text-slate-400">Configuração Firebase (JSON)</span>
-          <textarea
-            rows={6}
-            value={firebaseConfig}
-            onChange={(event) => setFirebaseConfig(event.target.value)}
-            className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-900 focus:ring-slate-900/10"
-          />
-        </label>
-        <div className="space-y-3">
-          <button
-            type="button"
-            onClick={handleTestFirebase}
-            disabled={isTestingFirebase}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:border-slate-400 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900 sm:w-auto"
-          >
-            {isTestingFirebase ? 'A validar…' : 'Testar ligação Firebase'}
-          </button>
-          <AnimatePresence>
-            {firebaseTestFeedback && (
-              <motion.p
-                key={firebaseTestFeedback}
-                initial={{ opacity: 0, y: -6 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -6 }}
-                transition={{ duration: 0.25 }}
-                className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600 shadow-sm"
-              >
-                {firebaseTestFeedback}
-              </motion.p>
-            )}
-          </AnimatePresence>
         </div>
         <button
           type="submit"
