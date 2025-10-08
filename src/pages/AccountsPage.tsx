@@ -33,17 +33,15 @@ interface AccountFormState {
   id?: string;
   name: string;
   type: AccountType;
-  balance: string;
+  iban: string;
   currency: string;
-  aliases: string;
 }
 
 const EMPTY_FORM: AccountFormState = {
   name: '',
   type: 'corrente',
-  balance: '',
-  currency: 'EUR',
-  aliases: ''
+  iban: '',
+  currency: 'EUR'
 };
 
 function normaliseCurrency(value: string): string {
@@ -54,8 +52,8 @@ function normaliseCurrency(value: string): string {
   return trimmed;
 }
 
-function formatNumberInput(value: string): string {
-  return value.replace(/[^0-9,.-]/g, '');
+function normaliseIbanInput(value: string): string {
+  return value.replace(/\s+/g, '').toUpperCase();
 }
 
 function normaliseAlias(value: string): string {
@@ -98,10 +96,7 @@ export default function AccountsPage() {
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const totalBalance = useMemo(
-    () => accounts.reduce((sum, account) => sum + account.balance, 0),
-    [accounts]
-  );
+  const totalAccounts = useMemo(() => accounts.length, [accounts]);
 
   const pendingValidation = useMemo(
     () => accounts.filter((account) => account.validationStatus === 'validacao-manual').length,
@@ -114,9 +109,8 @@ export default function AccountsPage() {
       id: account.id,
       name: account.name,
       type: account.type,
-      balance: account.balance.toString(),
-      currency: account.currency,
-      aliases: account.metadata?.aliases?.join('\n') ?? ''
+      iban: account.metadata?.iban ?? '',
+      currency: account.currency
     });
     setFeedback(null);
     setError(null);
@@ -144,22 +138,14 @@ export default function AccountsPage() {
       return;
     }
 
-    const normalisedBalance = formState.balance.replace(',', '.');
-    const parsedBalance = Number.parseFloat(normalisedBalance || '0');
-    if (!Number.isFinite(parsedBalance)) {
-      setError('Valor de saldo inválido.');
-      return;
-    }
-
     const previousAccount = editingId ? accounts.find((item) => item.id === editingId) : undefined;
-    const aliasList = parseAliases(formState.aliases, trimmedName);
-
     const metadata: Account['metadata'] | undefined = (() => {
       const base: Account['metadata'] = { ...previousAccount?.metadata };
-      if (aliasList.length > 0) {
-        base.aliases = aliasList;
-      } else if (base.aliases) {
-        delete base.aliases;
+      const trimmedIban = formState.iban.trim();
+      if (trimmedIban) {
+        base.iban = normaliseIbanInput(trimmedIban);
+      } else if (base.iban) {
+        delete base.iban;
       }
 
       const hasMetadata = Object.values(base).some((value) => {
@@ -176,7 +162,6 @@ export default function AccountsPage() {
       id: editingId ?? `acc-${crypto.randomUUID()}`,
       name: trimmedName,
       type: formState.type,
-      balance: Number(parsedBalance.toFixed(2)),
       currency: normaliseCurrency(formState.currency || 'EUR'),
       metadata,
       validationStatus: previousAccount?.validationStatus ?? 'validada'
@@ -293,24 +278,19 @@ export default function AccountsPage() {
 
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block space-y-2 text-sm text-slate-600">
-              <span className="text-xs uppercase tracking-wide text-slate-400">Saldo atual</span>
+              <span className="text-xs uppercase tracking-wide text-slate-400">IBAN</span>
               <input
-                value={formState.balance}
-                onChange={(event) =>
-                  setFormState((state) => ({ ...state, balance: formatNumberInput(event.target.value) }))
-                }
+                value={formState.iban}
+                onChange={(event) => setFormState((state) => ({ ...state, iban: event.target.value }))}
                 className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10"
-                placeholder="0,00"
-                inputMode="decimal"
+                placeholder="PT50..."
               />
             </label>
             <label className="block space-y-2 text-sm text-slate-600">
               <span className="text-xs uppercase tracking-wide text-slate-400">Moeda</span>
               <input
                 value={formState.currency}
-                onChange={(event) =>
-                  setFormState((state) => ({ ...state, currency: event.target.value.toUpperCase() }))
-                }
+                onChange={(event) => setFormState((state) => ({ ...state, currency: event.target.value.toUpperCase() }))}
                 className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10"
                 maxLength={3}
                 placeholder="EUR"
@@ -318,21 +298,7 @@ export default function AccountsPage() {
             </label>
           </div>
 
-          <label className="block space-y-2 text-sm text-slate-600">
-            <span className="text-xs uppercase tracking-wide text-slate-400">Alias da conta</span>
-            <textarea
-              value={formState.aliases}
-              onChange={(event) =>
-                setFormState((state) => ({ ...state, aliases: event.target.value }))
-              }
-              className="min-h-[96px] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10"
-              placeholder={'IBAN alternativo, Nome no extracto…'}
-            />
-            <p className="text-xs text-slate-500">
-              Introduza um alias por linha ou separados por vírgulas. Ajuda a detectar movimentos que
-              chegam com descrições diferentes.
-            </p>
-          </label>
+          {/* Alias removido: a ligação é feita por IBAN existente com aproximação >= 75% */}
 
           <div className="flex flex-wrap items-center gap-3">
             <button
@@ -377,10 +343,8 @@ export default function AccountsPage() {
         <div className="flex flex-col justify-between gap-6 rounded-3xl border border-slate-200 bg-slate-50/60 p-5 shadow-sm">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Resumo</p>
-            <h3 className="text-lg font-semibold text-slate-900">Saldo total</h3>
-            <p className="mt-2 text-3xl font-semibold text-slate-900">
-              {totalBalance.toFixed(2)} EUR
-            </p>
+            <h3 className="text-lg font-semibold text-slate-900">Contas registadas</h3>
+            <p className="mt-2 text-3xl font-semibold text-slate-900">{totalAccounts}</p>
             <p className="mt-1 text-xs uppercase tracking-wide text-slate-400">
               {accounts.length === 0
                 ? 'Nenhuma conta registada'
@@ -440,20 +404,10 @@ export default function AccountsPage() {
                 </span>
               </div>
               <div className="flex flex-wrap items-center gap-3 text-sm text-slate-600">
-                <span className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1 font-semibold text-slate-700">
-                  {account.balance.toFixed(2)} {account.currency}
-                </span>
-                {account.metadata?.aliases && account.metadata.aliases.length > 0 && (
-                  <div className="flex flex-wrap gap-2 text-xs text-slate-500">
-                    {account.metadata.aliases.map((alias) => (
-                      <span
-                        key={alias}
-                        className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1 font-medium"
-                      >
-                        {alias}
-                      </span>
-                    ))}
-                  </div>
+                {account.metadata?.iban && (
+                  <span className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1 font-semibold text-slate-700">
+                    {account.metadata.iban}
+                  </span>
                 )}
               </div>
               <div className="flex items-center gap-3">

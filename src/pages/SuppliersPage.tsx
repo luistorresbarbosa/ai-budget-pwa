@@ -19,44 +19,18 @@ interface SupplierFormState {
   id?: string;
   name: string;
   taxId: string;
-  aliases: string;
   notes: string;
+  referenceToId?: string;
 }
 
 const EMPTY_FORM: SupplierFormState = {
   name: '',
   taxId: '',
-  aliases: '',
-  notes: ''
+  notes: '',
+  referenceToId: undefined
 };
 
-function normaliseAlias(value: string): string {
-  return value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .toLowerCase();
-}
-
-function parseAliases(value: string, referenceName: string): string[] {
-  const reference = normaliseAlias(referenceName);
-  const segments = value
-    .split(/\r?\n|,/)
-    .map((segment) => segment.trim())
-    .filter(Boolean);
-  const unique = new Map<string, string>();
-  for (const segment of segments) {
-    const normalised = normaliseAlias(segment);
-    if (!normalised || normalised === reference) {
-      continue;
-    }
-    if (!unique.has(normalised)) {
-      unique.set(normalised, segment);
-    }
-  }
-  return Array.from(unique.values());
-}
+// Alias handling removed: suppliers can be marked as references to canonical suppliers
 
 export default function SuppliersPage() {
   const suppliers = useAppState((state) => state.suppliers);
@@ -80,8 +54,8 @@ export default function SuppliersPage() {
       id: supplier.id,
       name: supplier.name,
       taxId: supplier.metadata?.taxId ?? '',
-      aliases: supplier.metadata?.aliases?.join('\n') ?? '',
-      notes: supplier.metadata?.notes ?? ''
+      notes: supplier.metadata?.notes ?? '',
+      referenceToId: supplier.referenceToId
     });
     setFeedback(null);
     setError(null);
@@ -111,8 +85,6 @@ export default function SuppliersPage() {
 
     const trimmedTaxId = formState.taxId.trim();
     const trimmedNotes = formState.notes.trim();
-    const aliasList = parseAliases(formState.aliases, trimmedName);
-
     const previousSupplier = editingId ? suppliers.find((item) => item.id === editingId) : undefined;
 
     const metadata: Supplier['metadata'] | undefined = (() => {
@@ -120,7 +92,6 @@ export default function SuppliersPage() {
         ...previousSupplier?.metadata,
         taxId: trimmedTaxId || previousSupplier?.metadata?.taxId,
         notes: trimmedNotes || previousSupplier?.metadata?.notes,
-        aliases: aliasList.length > 0 ? aliasList : previousSupplier?.metadata?.aliases,
         accountHints: previousSupplier?.metadata?.accountHints
       };
 
@@ -129,9 +100,6 @@ export default function SuppliersPage() {
       }
       if (!base.notes) {
         delete base.notes;
-      }
-      if (!base.aliases || base.aliases.length === 0) {
-        delete base.aliases;
       }
       if (!base.accountHints || base.accountHints.length === 0) {
         delete base.accountHints;
@@ -143,7 +111,8 @@ export default function SuppliersPage() {
     const supplier: Supplier = {
       id: editingId ?? `sup-${crypto.randomUUID()}`,
       name: trimmedName,
-      metadata
+      metadata,
+      referenceToId: formState.referenceToId || undefined
     };
 
     setIsSaving(true);
@@ -260,17 +229,24 @@ export default function SuppliersPage() {
 
           <label className="block space-y-2 text-sm text-slate-600">
             <span className="flex items-center gap-2 text-xs uppercase tracking-wide text-slate-400">
-              <Link2 className="h-3.5 w-3.5" /> Alias conhecidos (um por linha)
+              <Link2 className="h-3.5 w-3.5" /> Referência de (opcional)
             </span>
-            <textarea
-              rows={3}
-              value={formState.aliases}
-              onChange={(event) => setFormState((state) => ({ ...state, aliases: event.target.value }))}
-              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-900 focus:ring-slate-900/10"
-              placeholder={"Crédito Habitação\nSeguro Vida"}
-            />
+            <select
+              value={formState.referenceToId ?? ''}
+              onChange={(event) => setFormState((state) => ({ ...state, referenceToId: event.target.value || undefined }))}
+              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10"
+            >
+              <option value="">Nenhuma</option>
+              {suppliers
+                .filter((s) => s.id !== editingId)
+                .map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+            </select>
             <p className="text-[11px] text-slate-400">
-              Utilize alias para agrupar descrições de faturas ou movimentos ao fornecedor correto.
+              Quando definido, este fornecedor é apenas uma referência e será sempre mapeado para o fornecedor selecionado.
             </p>
           </label>
 
@@ -324,7 +300,7 @@ export default function SuppliersPage() {
             </p>
           </div>
           <p className="text-xs text-slate-500">
-            Mantenha alias actualizados para que os extractos reconheçam o fornecedor correcto automaticamente.
+            Use referências manuais para consolidar nomes alternativos no fornecedor correto.
           </p>
         </div>
       </motion.div>
@@ -359,24 +335,16 @@ export default function SuppliersPage() {
                     )}
                   </div>
                 </div>
-                {supplier.metadata?.aliases && supplier.metadata.aliases.length > 0 && (
-                  <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                    {supplier.metadata.aliases.length}{' '}
-                    {supplier.metadata.aliases.length === 1 ? 'alias' : 'alias'}
+                {supplier.referenceToId && (
+                  <span className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-indigo-700">
+                    Referência de
                   </span>
                 )}
               </div>
-              {supplier.metadata?.aliases && supplier.metadata.aliases.length > 0 && (
+              {supplier.referenceToId && (
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-500">
-                  <p className="font-semibold uppercase tracking-wide text-slate-400">Alias</p>
-                  <ul className="mt-1 space-y-1">
-                    {supplier.metadata.aliases.map((alias) => (
-                      <li key={alias} className="flex items-center gap-2">
-                        <Link2 className="h-3 w-3 text-slate-400" />
-                        <span>{alias}</span>
-                      </li>
-                    ))}
-                  </ul>
+                  <p className="font-semibold uppercase tracking-wide text-slate-400">Referência de</p>
+                  <p className="mt-1">{suppliers.find((s) => s.id === supplier.referenceToId)?.name || supplier.referenceToId}</p>
                 </div>
               )}
               {supplier.metadata?.accountHints && supplier.metadata.accountHints.length > 0 && (

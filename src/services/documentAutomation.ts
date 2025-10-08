@@ -101,30 +101,6 @@ function isLikelyIban(candidate: string | undefined): boolean {
   return /^[A-Z]{2}[0-9A-Z]{13,32}$/.test(normalised);
 }
 
-function formatAccountNameFromHint(accountHint: string): string {
-  const sanitized = accountHint.replace(/\s+/g, '').toUpperCase();
-  if (isLikelyIban(sanitized)) {
-    return `Conta ${sanitized.slice(0, 4)}…${sanitized.slice(-4)}`;
-  }
-  const tail = sanitized.slice(-6);
-  return tail ? `Conta ${tail}` : `Conta ${sanitized}`;
-}
-
-function mergeAccountMetadata(accountHint: string | undefined): Account['metadata'] | undefined {
-  if (!accountHint) {
-    return undefined;
-  }
-
-  const metadataEntries: Record<string, unknown> = {
-    identifier: accountHint,
-    number: accountHint,
-    iban: accountHint,
-    hints: [accountHint]
-  };
-
-  return metadataEntries as Account['metadata'];
-}
-
 function ensureAccount(options: EnsureAccountOptions): EnsureAccountResult {
   const { accountHint, document, existingAccounts } = options;
   const trimmedHint = accountHint?.trim();
@@ -136,22 +112,8 @@ function ensureAccount(options: EnsureAccountOptions): EnsureAccountResult {
     }
   }
 
-  if (!trimmedHint) {
-    return { account: undefined, accounts: existingAccounts, created: false };
-  }
-
-  const newAccount: Account = {
-    id: buildAutoAccountId(trimmedHint, document.id, existingAccounts),
-    name: formatAccountNameFromHint(trimmedHint),
-    type: isLikelyIban(trimmedHint) ? 'corrente' : 'outro',
-    balance: 0,
-    currency: document.currency ?? 'EUR',
-    validationStatus: 'validacao-manual',
-    metadata: mergeAccountMetadata(trimmedHint)
-  };
-
-  const nextAccounts = [newAccount, ...existingAccounts.filter((account) => account.id !== newAccount.id)];
-  return { account: newAccount, accounts: nextAccounts, created: true };
+  // Do not auto-create accounts; require manual setup
+  return { account: undefined, accounts: existingAccounts, created: false };
 }
 
 function ensureSupplier(document: DocumentMetadata, existingSuppliers: Supplier[]): EnsureSupplierResult {
@@ -169,24 +131,20 @@ function ensureSupplier(document: DocumentMetadata, existingSuppliers: Supplier[
     matchedByCanonicalName = existingSuppliers.find(
       (supplier) => normaliseSupplierName(supplier.name) === normalisedName
     );
-
-    if (!matchedByCanonicalName) {
-      matchedByAlias = existingSuppliers.find((supplier) => supplierMatchesName(supplier, baseName));
-    }
   }
 
-  const matched = matchedById ?? matchedByCanonicalName ?? matchedByAlias;
+  let matched = matchedById ?? matchedByCanonicalName ?? matchedByAlias;
+
+  // If matched is a reference, resolve to canonical supplier
+  if (matched?.referenceToId) {
+    matched = existingSuppliers.find((s) => s.id === matched!.referenceToId) ?? matched;
+  }
 
   if (matched) {
     const metadata = mergeSupplierMetadata(document, matched);
     const metadataSerialised = metadata ? JSON.stringify(metadata) : null;
     const existingMetadataSerialised = matched.metadata ? JSON.stringify(matched.metadata) : null;
-    const matchedViaAlias = Boolean(
-      matchedByAlias && matchedByAlias.id === matched.id && matchedByAlias !== matchedByCanonicalName
-    );
-    const nextName = matchedViaAlias && baseName ? matched.name : baseName ?? matched.name;
-    const nameChanged = nextName.trim() !== matched.name.trim();
-    const requiresUpdate = metadataSerialised !== existingMetadataSerialised || nameChanged;
+    const requiresUpdate = metadataSerialised !== existingMetadataSerialised;
 
     if (!requiresUpdate) {
       return { supplier: matched, suppliers: existingSuppliers, created: false, updated: false };
@@ -194,7 +152,6 @@ function ensureSupplier(document: DocumentMetadata, existingSuppliers: Supplier[
 
     const updatedSupplier: Supplier = {
       ...matched,
-      name: nextName,
       metadata: metadata ?? matched.metadata
     };
 
@@ -327,14 +284,6 @@ function buildSupplierNameCandidates(supplier: Supplier): string[] {
   if (supplier.name?.trim()) {
     candidates.add(supplier.name.trim());
   }
-  const aliases = supplier.metadata?.aliases;
-  if (Array.isArray(aliases)) {
-    for (const alias of aliases) {
-      if (typeof alias === 'string' && alias.trim()) {
-        candidates.add(alias.trim());
-      }
-    }
-  }
   return Array.from(candidates);
 }
 
@@ -365,46 +314,14 @@ function mergeSupplierMetadata(
     accountHints.add(document.statementAccountIban);
   }
 
-  const aliases = new Set<string>();
-  existing?.metadata?.aliases?.forEach((alias) => {
-    if (typeof alias === 'string' && alias.trim()) {
-      aliases.add(alias.trim());
-    }
-  });
-
-  const canonicalName = existing?.name ?? document.companyName ?? document.originalName ?? '';
-  const canonicalNormalised = normaliseSupplierName(canonicalName);
-  const addAliasCandidate = (value: string | undefined) => {
-    if (!value) {
-      return;
-    }
-    const trimmed = value.trim();
-    if (!trimmed) {
-      return;
-    }
-    const normalised = normaliseSupplierName(trimmed);
-    if (normalised && normalised !== canonicalNormalised) {
-      aliases.add(trimmed);
-    }
-  };
-
-  addAliasCandidate(document.companyName);
-  addAliasCandidate(document.originalName);
-  if (Array.isArray(document.statementSettlements)) {
-    for (const settlement of document.statementSettlements) {
-      addAliasCandidate(settlement?.supplierName);
-    }
-  }
-
   const metadata: Supplier['metadata'] = {
     ...existing?.metadata,
     taxId: document.supplierTaxId ?? existing?.metadata?.taxId,
     accountHints: accountHints.size > 0 ? Array.from(accountHints) : existing?.metadata?.accountHints,
-    aliases: aliases.size > 0 ? Array.from(aliases) : existing?.metadata?.aliases,
     notes: existing?.metadata?.notes
   };
 
-  if (!metadata.taxId && !metadata.accountHints && !metadata.notes && !metadata.aliases) {
+  if (!metadata.taxId && !metadata.accountHints && !metadata.notes) {
     return existing?.metadata;
   }
 
@@ -609,10 +526,6 @@ async function ensureAccountPersisted(
 ): Promise<Account[]> {
   if (!ensured.account) {
     return ensured.accounts;
-  }
-
-  if (ensured.created) {
-    await persistAccount(ensured.account, firebaseConfig);
   }
   callbacks.onAccountUpsert?.(ensured.account);
   return ensured.accounts;

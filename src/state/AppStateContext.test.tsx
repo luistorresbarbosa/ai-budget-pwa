@@ -160,7 +160,6 @@ describe('AppState store', () => {
         id: 'acc-1',
         name: 'Conta Teste',
         type: 'corrente',
-        balance: 100,
         currency: 'EUR'
       }
     ] as typeof result.current.accounts;

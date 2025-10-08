@@ -309,7 +309,9 @@ function TransfersPage() {
           </div>
         ) : (
           <div className="grid gap-4 lg:grid-cols-2">
-            {monthlySummaries.map((summary) => (
+            {(() => {
+              const maxTotal = Math.max(0, ...monthlySummaries.map((s) => s.total));
+              return monthlySummaries.map((summary) => (
               <div
                 key={summary.accountId ?? 'unassigned'}
                 className="space-y-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
@@ -335,6 +337,14 @@ function TransfersPage() {
                       : 'Rever conta'}
                   </span>
                 </div>
+                <div className="mt-1">
+                  <div className="h-2 w-full rounded-full bg-slate-100">
+                    <div
+                      className="h-2 rounded-full bg-slate-900 transition-all"
+                      style={{ width: `${maxTotal > 0 ? Math.min(100, Math.round((summary.total / maxTotal) * 100)) : 0}%` }}
+                    />
+                  </div>
+                </div>
                 <ul className="divide-y divide-slate-100">
                   {summary.months.map((month) => (
                     <li
@@ -358,7 +368,8 @@ function TransfersPage() {
                   ))}
                 </ul>
               </div>
-            ))}
+              ));
+            })()}
           </div>
         )}
 

@@ -12,7 +12,6 @@ describe('expenseDerivation deduplication', () => {
     id: 'acc-1',
     name: 'Conta Principal',
     type: 'corrente',
-    balance: 0,
     currency: 'EUR'
   };
 

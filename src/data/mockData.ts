@@ -5,7 +5,6 @@ export const mockAccounts: Account[] = [
     id: 'acc-1',
     name: 'Conta Corrente',
     type: 'corrente',
-    balance: 2350.23,
     currency: 'EUR',
     validationStatus: 'validada'
   },
@@ -13,7 +12,6 @@ export const mockAccounts: Account[] = [
     id: 'acc-2',
     name: 'Poupança Objetivos',
     type: 'poupanca',
-    balance: 5400,
     currency: 'EUR',
     validationStatus: 'validada'
   }

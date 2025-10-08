@@ -7,7 +7,7 @@ import type {
 } from '../data/models';
 
 const ACCOUNT_IDENTIFIER_KEYS = ['iban', 'ibanNumber', 'accountNumber', 'number', 'identifier'] as const;
-const ACCOUNT_ARRAY_METADATA_KEYS = ['hints', 'accountHints', 'aliases'] as const;
+const ACCOUNT_ARRAY_METADATA_KEYS = ['hints', 'accountHints'] as const;
 
 function normaliseIdentifier(value: string): string {
   return value
@@ -147,35 +147,46 @@ export function resolveAccountId(
     return undefined;
   }
   if (!accountHint || accountHint.trim().length === 0) {
-    return accounts.length === 1 ? accounts[0].id : undefined;
+    return undefined;
   }
 
-  const normalisedHint = normaliseIdentifier(accountHint);
-  if (!normalisedHint) {
-    return accounts.length === 1 ? accounts[0].id : undefined;
-  }
+  const matched = findAccountByHint(accountHint, accounts);
+  return matched?.id;
+}
 
-  for (const account of accounts) {
-    const candidates = extractAccountCandidates(account)
-      .map(normaliseIdentifier)
-      .filter((candidate) => candidate.length > 0);
+function normaliseIbanLike(value: string): string {
+  return value.replace(/\s+/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
 
-    const hasMatch = candidates.some((candidate) => {
-      if (candidate === normalisedHint) {
-        return true;
+function isIbanLike(value: string | undefined): boolean {
+  if (!value) return false;
+  const v = normaliseIbanLike(value);
+  return v.length >= 8 && /^[A-Z0-9]+$/.test(v);
+}
+
+function lcsLength(a: string, b: string): number {
+  const n = a.length;
+  const m = b.length;
+  const dp: number[][] = Array.from({ length: n + 1 }, () => Array(m + 1).fill(0));
+  for (let i = 1; i <= n; i++) {
+    for (let j = 1; j <= m; j++) {
+      if (a[i - 1] === b[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1] + 1;
+      } else {
+        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
       }
-      if (candidate.length < 4) {
-        return false;
-      }
-      return candidate.includes(normalisedHint) || normalisedHint.includes(candidate);
-    });
-
-    if (hasMatch) {
-      return account.id;
     }
   }
+  return dp[n][m];
+}
 
-  return accounts.length === 1 ? accounts[0].id : undefined;
+function ibanSimilarityScore(a: string, b: string): number {
+  const A = normaliseIbanLike(a);
+  const B = normaliseIbanLike(b);
+  if (A.length === 0 || B.length === 0) return 0;
+  const lcs = lcsLength(A, B);
+  // Score relative to the extracted candidate length to accommodate masked IBANs
+  return lcs / Math.max(1, A.length);
 }
 
 export function findAccountByHint(
@@ -185,26 +196,36 @@ export function findAccountByHint(
   if (!accountHint || accountHint.trim().length === 0) {
     return undefined;
   }
-  const normalisedHint = normaliseIdentifier(accountHint);
-  if (!normalisedHint) {
+
+  // Only consider IBAN-like hints for automatic linking
+  if (!isIbanLike(accountHint)) {
     return undefined;
   }
 
-  return accounts.find((account) => {
-    const candidates = extractAccountCandidates(account)
-      .map(normaliseIdentifier)
-      .filter((candidate) => candidate.length > 0);
+  const THRESHOLD = 0.75;
+  let best: { account: Account; score: number } | undefined;
 
-    return candidates.some((candidate) => {
-      if (candidate === normalisedHint) {
-        return true;
+  for (const account of accounts) {
+    // Prefer explicit IBAN fields on account and metadata
+    const candidates = new Set<string>();
+    const accRecord = account as Account & Record<string, unknown>;
+    const meta = (accRecord['metadata'] as Record<string, unknown> | undefined) ?? undefined;
+    const pushIfString = (v: unknown) => {
+      if (typeof v === 'string' && v.trim()) candidates.add(v);
+    };
+    pushIfString(accRecord['iban']);
+    pushIfString(meta?.['iban']);
+    pushIfString(meta?.['ibanNumber']);
+
+    for (const candidate of candidates) {
+      const score = ibanSimilarityScore(accountHint, candidate);
+      if (score >= THRESHOLD && (!best || score > best.score)) {
+        best = { account, score };
       }
-      if (candidate.length < 4) {
-        return false;
-      }
-      return candidate.includes(normalisedHint) || normalisedHint.includes(candidate);
-    });
-  });
+    }
+  }
+
+  return best?.account;
 }
 
 function humaniseDocumentName(originalName: string): string {

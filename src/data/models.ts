@@ -12,14 +12,12 @@ export interface AccountMetadata {
   number?: string;
   identifier?: string;
   hints?: string[];
-  aliases?: string[];
 }
 
 export interface Account {
   id: string;
   name: string;
   type: AccountType;
-  balance: number;
   currency: string;
   metadata?: AccountMetadata;
   validationStatus?: AccountValidationStatus;
@@ -28,13 +26,15 @@ export interface Account {
 export interface SupplierMetadata {
   taxId?: string;
   accountHints?: string[];
-  aliases?: string[];
   notes?: string;
 }
 
 export interface Supplier {
   id: string;
   name: string;
+  // If set, this record represents a manual reference to another supplier.
+  // Referenced suppliers are not treated as canonical suppliers for matching.
+  referenceToId?: string;
   metadata?: SupplierMetadata;
 }
 
