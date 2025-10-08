@@ -1,8 +1,10 @@
 import { FormEvent, useMemo, useState } from 'react';
-import { motion } from 'framer-motion';
-import { AlertCircle, ArrowRightLeft, CalendarDays, Euro, Plus } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { AlertCircle, ArrowRightLeft, CalendarDays, Euro, Pencil, Save, Trash2, XCircle } from 'lucide-react';
 import { useAppState } from '../state/AppStateContext';
 import type { DocumentMetadata, Transfer } from '../data/models';
+import { validateFirebaseConfig } from '../services/firebase';
+import { persistTransfer, removeTransferById } from '../services/transfers';
 
 const defaultTransfer = (fromAccountId: string, toAccountId: string): Transfer => ({
   id: crypto.randomUUID(),
@@ -19,10 +21,29 @@ function TransfersPage() {
   const transfers = useAppState((state) => state.transfers);
   const documents = useAppState((state) => state.documents);
   const addTransfer = useAppState((state) => state.addTransfer);
+  const removeTransfer = useAppState((state) => state.removeTransfer);
+  const settings = useAppState((state) => state.settings);
 
   const [draft, setDraft] = useState(() =>
     defaultTransfer(accounts[0]?.id ?? '', accounts[1]?.id ?? accounts[0]?.id ?? '')
   );
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const resetDraft = () => {
+    setEditingId(null);
+    setDraft(defaultTransfer(accounts[0]?.id ?? '', accounts[1]?.id ?? accounts[0]?.id ?? ''));
+  };
+
+  const handleEdit = (transfer: Transfer) => {
+    setEditingId(transfer.id);
+    setDraft({ ...transfer });
+    setFeedback(null);
+    setError(null);
+  };
 
   type MonthlyRequirementEntry = {
     monthKey: string;
@@ -156,16 +177,105 @@ function TransfersPage() {
 
   function handleChange(event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) {
     const { name, value } = event.target;
-    setDraft((prev) => ({ ...prev, [name]: name === 'amount' ? Number(value) : value }));
+    setDraft((prev) => ({
+      ...prev,
+      [name]:
+        name === 'amount'
+          ? Number(value)
+          : name === 'currency'
+          ? value.toUpperCase()
+          : value
+    }));
   }
 
-  function handleSubmit(event: FormEvent) {
+  async function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    if (!draft.fromAccountId || !draft.toAccountId) return;
+    setFeedback(null);
+    setError(null);
 
-    addTransfer({ ...draft, id: crypto.randomUUID() });
-    setDraft(defaultTransfer(draft.fromAccountId, draft.toAccountId));
+    const config = settings.firebaseConfig;
+    if (!config || !validateFirebaseConfig(config)) {
+      setError('Configure o Firebase nas definições antes de gerir transferências.');
+      return;
+    }
+
+    if (!draft.fromAccountId || !draft.toAccountId) {
+      setError('Selecione as contas de origem e destino.');
+      return;
+    }
+
+    if (draft.fromAccountId === draft.toAccountId) {
+      setError('Escolha contas diferentes para a transferência.');
+      return;
+    }
+
+    if (!Number.isFinite(draft.amount) || draft.amount <= 0) {
+      setError('Indique um valor válido.');
+      return;
+    }
+
+    if (!draft.scheduleDate) {
+      setError('Indique a data da transferência.');
+      return;
+    }
+
+    const currency = (draft.currency || 'EUR').toUpperCase();
+    const scheduleDate = new Date(draft.scheduleDate).toISOString();
+
+    const transfer: Transfer = {
+      ...draft,
+      id: editingId ?? `transf-${crypto.randomUUID()}`,
+      currency,
+      scheduleDate
+    };
+
+    setIsSaving(true);
+    try {
+      await persistTransfer(transfer, config);
+      addTransfer(transfer);
+      setFeedback(editingId ? 'Transferência atualizada com sucesso.' : 'Transferência criada com sucesso.');
+      resetDraft();
+    } catch (submitError) {
+      console.error('Não foi possível guardar a transferência.', submitError);
+      setError(
+        submitError instanceof Error
+          ? submitError.message
+          : 'Não foi possível guardar a transferência. Tente novamente.'
+      );
+    } finally {
+      setIsSaving(false);
+    }
   }
+
+  const handleDelete = async (transferId: string) => {
+    const config = settings.firebaseConfig;
+    if (!config || !validateFirebaseConfig(config)) {
+      setError('Configure o Firebase nas definições antes de gerir transferências.');
+      return;
+    }
+
+    setFeedback(null);
+    setError(null);
+    setDeletingId(transferId);
+
+    try {
+      await removeTransferById(transferId, config);
+      removeTransfer(transferId);
+      if (editingId === transferId) {
+        resetDraft();
+      }
+      setFeedback('Transferência removida.');
+    } catch (deleteError) {
+      console.error('Não foi possível remover a transferência.', deleteError);
+      setError(
+        deleteError instanceof Error
+          ? deleteError.message
+          : 'Não foi possível remover a transferência. Tente novamente.'
+      );
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   return (
     <motion.section
@@ -282,12 +392,35 @@ function TransfersPage() {
 
       <motion.form
         onSubmit={handleSubmit}
-        className="grid gap-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:grid-cols-2"
+        className="space-y-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1, duration: 0.35, ease: 'easeOut' }}
       >
-        <div className="space-y-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900 sm:text-xl">
+              {editingId ? 'Editar transferência' : 'Agendar transferência'}
+            </h2>
+            <p className="text-xs text-slate-500">
+              {editingId
+                ? 'Atualize os detalhes da transferência selecionada.'
+                : 'Defina uma nova transferência entre contas.'}
+            </p>
+          </div>
+          {editingId && (
+            <button
+              type="button"
+              onClick={resetDraft}
+              className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-500 transition hover:border-slate-300 hover:text-slate-900"
+            >
+              <XCircle className="h-4 w-4" />
+              Cancelar edição
+            </button>
+          )}
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
           <label className="block space-y-2 text-sm text-slate-600">
             <span className="text-xs uppercase tracking-wide text-slate-400">De</span>
             <select
@@ -296,6 +429,7 @@ function TransfersPage() {
               onChange={handleChange}
               className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10"
             >
+              <option value="">Selecionar conta…</option>
               {accounts.map((account) => (
                 <option key={account.id} value={account.id}>
                   {account.name}
@@ -311,6 +445,7 @@ function TransfersPage() {
               onChange={handleChange}
               className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10"
             >
+              <option value="">Selecionar conta…</option>
               {accounts.map((account) => (
                 <option key={account.id} value={account.id}>
                   {account.name}
@@ -318,18 +453,26 @@ function TransfersPage() {
               ))}
             </select>
           </label>
-        </div>
-
-        <div className="space-y-4">
           <label className="block space-y-2 text-sm text-slate-600">
-            <span className="text-xs uppercase tracking-wide text-slate-400">Valor (€)</span>
+            <span className="text-xs uppercase tracking-wide text-slate-400">Valor</span>
             <input
               type="number"
               name="amount"
-              value={draft.amount}
+              value={Number.isFinite(draft.amount) ? draft.amount : ''}
               step="0.01"
               onChange={handleChange}
               className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-900 focus:ring-slate-900/10"
+            />
+          </label>
+          <label className="block space-y-2 text-sm text-slate-600">
+            <span className="text-xs uppercase tracking-wide text-slate-400">Moeda</span>
+            <input
+              type="text"
+              name="currency"
+              value={draft.currency}
+              onChange={handleChange}
+              maxLength={3}
+              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm uppercase text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-900 focus:ring-slate-900/10"
             />
           </label>
           <label className="block space-y-2 text-sm text-slate-600">
@@ -337,24 +480,81 @@ function TransfersPage() {
             <input
               type="date"
               name="scheduleDate"
-              value={draft.scheduleDate.substring(0, 10)}
+              value={draft.scheduleDate ? draft.scheduleDate.substring(0, 10) : ''}
               onChange={(event) =>
-                setDraft((prev) => ({ ...prev, scheduleDate: new Date(event.target.value).toISOString() }))
+                setDraft((prev) => ({
+                  ...prev,
+                  scheduleDate: event.target.value ? new Date(event.target.value).toISOString() : ''
+                }))
               }
               className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10"
             />
           </label>
+          <label className="block space-y-2 text-sm text-slate-600">
+            <span className="text-xs uppercase tracking-wide text-slate-400">Estado</span>
+            <select
+              name="status"
+              value={draft.status}
+              onChange={handleChange}
+              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10"
+            >
+              <option value="agendado">Agendado</option>
+              <option value="executado">Executado</option>
+              <option value="falhado">Falhado</option>
+            </select>
+          </label>
+          <label className="sm:col-span-2 block space-y-2 text-sm text-slate-600">
+            <span className="text-xs uppercase tracking-wide text-slate-400">Notas</span>
+            <textarea
+              name="notes"
+              value={draft.notes ?? ''}
+              onChange={handleChange}
+              rows={3}
+              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-900 focus:ring-slate-900/10"
+              placeholder="Informações adicionais (opcional)"
+            />
+          </label>
         </div>
 
-        <div className="sm:col-span-2">
+        <div className="flex flex-wrap items-center gap-3">
           <button
             type="submit"
-            className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900 sm:w-auto sm:px-6"
+            disabled={isSaving}
+            className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900 disabled:opacity-60"
           >
-            <Plus className="h-4 w-4" />
-            <span>Adicionar transferência</span>
+            <Save className="h-4 w-4" />
+            {isSaving ? 'A guardar…' : editingId ? 'Guardar alterações' : 'Criar transferência'}
           </button>
+          {editingId && (
+            <button
+              type="button"
+              onClick={() => handleDelete(editingId)}
+              disabled={deletingId === editingId}
+              className="inline-flex items-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700 shadow-sm transition hover:border-rose-300 hover:bg-rose-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 disabled:opacity-60"
+            >
+              <Trash2 className="h-4 w-4" />
+              {deletingId === editingId ? 'A remover…' : 'Remover'}
+            </button>
+          )}
         </div>
+
+        <AnimatePresence>
+          {(error || feedback) && (
+            <motion.p
+              key={(error ?? feedback) as string}
+              initial={{ opacity: 0, y: -6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              className={`rounded-2xl border px-4 py-3 text-sm shadow-sm ${
+                error
+                  ? 'border-rose-200 bg-rose-50 text-rose-700'
+                  : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+              }`}
+            >
+              {error ?? feedback}
+            </motion.p>
+          )}
+        </AnimatePresence>
       </motion.form>
 
       <div className="space-y-4">
@@ -379,10 +579,29 @@ function TransfersPage() {
                   {accounts.find((acc) => acc.id === transfer.fromAccountId)?.name} →{' '}
                   {accounts.find((acc) => acc.id === transfer.toAccountId)?.name}
                 </strong>
-                <span className="flex items-center gap-2 text-sm text-slate-600">
-                  <Euro className="h-4 w-4 text-slate-400" />
-                  {transfer.amount.toFixed(2)} {transfer.currency}
-                </span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="flex items-center gap-2 text-sm text-slate-600">
+                    <Euro className="h-4 w-4 text-slate-400" />
+                    {transfer.amount.toFixed(2)} {transfer.currency}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleEdit(transfer)}
+                    className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-500 transition hover:border-slate-300 hover:text-slate-900"
+                  >
+                    <Pencil className="h-4 w-4" />
+                    Editar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(transfer.id)}
+                    disabled={deletingId === transfer.id}
+                    className="inline-flex items-center gap-1 rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-medium text-rose-700 transition hover:border-rose-300 hover:bg-rose-100 disabled:opacity-60"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    {deletingId === transfer.id ? 'A remover…' : 'Remover'}
+                  </button>
+                </div>
               </div>
               <small className="flex items-center gap-2 text-xs uppercase tracking-wide text-slate-500">
                 <CalendarDays className="h-4 w-4 text-slate-400" />
