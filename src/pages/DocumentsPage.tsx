@@ -8,9 +8,12 @@ import {
   FileText,
   Landmark,
   Loader2,
+  Pencil,
+  Save,
   Tag,
   Trash2,
-  UploadCloud
+  UploadCloud,
+  XCircle
 } from 'lucide-react';
 import { useAppState } from '../state/AppStateContext';
 import type { DocumentMetadata } from '../data/models';
@@ -30,6 +33,20 @@ const feedbackStyles: Record<UploadFeedback['type'], string> = {
   error: 'rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 shadow-sm',
   info: 'rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 shadow-sm'
 };
+
+interface DocumentFormState {
+  sourceType: DocumentMetadata['sourceType'];
+  amount: string;
+  currency: string;
+  dueDate: string;
+  accountHint: string;
+  companyName: string;
+  expenseType: string;
+  notes: string;
+  supplierId: string;
+  supplierTaxId: string;
+  statementAccountIban: string;
+}
 
 function DocumentsPage() {
     const PAGE_SIZE_OPTIONS = [5, 10, 20] as const;
@@ -51,6 +68,11 @@ function DocumentsPage() {
   const [feedback, setFeedback] = useState<UploadFeedback | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<(typeof PAGE_SIZE_OPTIONS)[number]>(PAGE_SIZE_OPTIONS[0]);
+  const [editingDocumentId, setEditingDocumentId] = useState<string | null>(null);
+  const [documentForm, setDocumentForm] = useState<DocumentFormState | null>(null);
+  const [documentFeedback, setDocumentFeedback] = useState<string | null>(null);
+  const [documentError, setDocumentError] = useState<string | null>(null);
+  const [isSavingDocument, setIsSavingDocument] = useState(false);
 
   const sortedDocuments = useMemo(() => {
     return [...documents].sort((a, b) => {
@@ -229,6 +251,103 @@ function DocumentsPage() {
     }
   }
 
+  function startEditingDocument(doc: DocumentMetadata) {
+    setEditingDocumentId(doc.id);
+    setDocumentForm({
+      sourceType: doc.sourceType,
+      amount: typeof doc.amount === 'number' ? doc.amount.toString() : '',
+      currency: doc.currency ?? '',
+      dueDate: doc.dueDate ? doc.dueDate.substring(0, 10) : '',
+      accountHint: doc.accountHint ?? '',
+      companyName: doc.companyName ?? '',
+      expenseType: doc.expenseType ?? '',
+      notes: doc.notes ?? '',
+      supplierId: doc.supplierId ?? '',
+      supplierTaxId: doc.supplierTaxId ?? '',
+      statementAccountIban: doc.statementAccountIban ?? ''
+    });
+    setDocumentFeedback(null);
+    setDocumentError(null);
+  }
+
+  function cancelEditingDocument() {
+    setEditingDocumentId(null);
+    setDocumentForm(null);
+    setDocumentFeedback(null);
+    setDocumentError(null);
+  }
+
+  function updateDocumentForm<K extends keyof DocumentFormState>(key: K, value: DocumentFormState[K]) {
+    setDocumentForm((prev) => (prev ? { ...prev, [key]: value } : prev));
+  }
+
+  async function handleSaveDocument() {
+    if (!editingDocumentId || !documentForm) {
+      return;
+    }
+
+    const config = settings.firebaseConfig;
+    if (!config || !validateFirebaseConfig(config)) {
+      setDocumentError('Configure o Firebase nas definições antes de editar documentos.');
+      return;
+    }
+
+    const existing = documents.find((item) => item.id === editingDocumentId);
+    if (!existing) {
+      setDocumentError('Documento não encontrado.');
+      return;
+    }
+
+    const trimmedAmount = documentForm.amount.trim();
+    const parsedAmount = trimmedAmount
+      ? Number.parseFloat(trimmedAmount.replace(',', '.'))
+      : undefined;
+    if (trimmedAmount && !Number.isFinite(parsedAmount)) {
+      setDocumentError('Valor inválido.');
+      return;
+    }
+
+    const trimmedCurrency = documentForm.currency.trim().toUpperCase();
+    if (trimmedCurrency && trimmedCurrency.length !== 3) {
+      setDocumentError('A moeda deve ter 3 letras.');
+      return;
+    }
+
+    const dueDateIso = documentForm.dueDate ? new Date(documentForm.dueDate).toISOString() : undefined;
+
+    const updated: DocumentMetadata = {
+      ...existing,
+      sourceType: documentForm.sourceType,
+      amount: parsedAmount,
+      currency: trimmedCurrency || undefined,
+      dueDate: dueDateIso,
+      accountHint: documentForm.accountHint.trim() || undefined,
+      companyName: documentForm.companyName.trim() || undefined,
+      expenseType: documentForm.expenseType.trim() || undefined,
+      notes: documentForm.notes.trim() || undefined,
+      supplierId: documentForm.supplierId || undefined,
+      supplierTaxId: documentForm.supplierTaxId.trim() || undefined,
+      statementAccountIban: documentForm.statementAccountIban.trim() || undefined
+    };
+
+    setIsSavingDocument(true);
+    try {
+      await persistDocumentMetadata(updated, config);
+      addDocument(updated);
+      setDocumentFeedback('Documento atualizado com sucesso.');
+      setDocumentError(null);
+    } catch (editError) {
+      console.error('Não foi possível atualizar o documento.', editError);
+      setDocumentError(
+        editError instanceof Error
+          ? editError.message
+          : 'Não foi possível atualizar o documento. Tente novamente.'
+      );
+    } finally {
+      setIsSavingDocument(false);
+    }
+  }
+
   return (
     <motion.section
       initial={{ opacity: 0, y: 20 }}
@@ -353,15 +472,25 @@ function DocumentsPage() {
                         {new Date(doc.uploadDate).toLocaleString('pt-PT')} · {doc.sourceType}
                       </small>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(doc.id)}
-                      disabled={deletingId === doc.id}
-                      className="inline-flex items-center gap-2 self-start rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 disabled:opacity-60"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                      {deletingId === doc.id ? 'A remover…' : 'Remover'}
-                    </button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => startEditingDocument(doc)}
+                        className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-500 transition hover:border-slate-300 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400"
+                      >
+                        <Pencil className="h-4 w-4" />
+                        {editingDocumentId === doc.id ? 'A editar' : 'Editar'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(doc.id)}
+                        disabled={deletingId === doc.id}
+                        className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 disabled:opacity-60"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        {deletingId === doc.id ? 'A remover…' : 'Remover'}
+                      </button>
+                    </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
                     {supplierLabel && (
@@ -402,6 +531,154 @@ function DocumentsPage() {
                     )}
                   </div>
                   {doc.notes && <p className="text-sm text-slate-600">{doc.notes}</p>}
+                  {editingDocumentId === doc.id && documentForm && (
+                    <div className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <label className="block space-y-1 text-xs font-medium text-slate-500">
+                          <span className="uppercase tracking-wide text-slate-400">Tipo</span>
+                          <select
+                            value={documentForm.sourceType}
+                            onChange={(event) =>
+                              updateDocumentForm('sourceType', event.target.value as DocumentMetadata['sourceType'])
+                            }
+                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10"
+                          >
+                            <option value="fatura">Fatura</option>
+                            <option value="recibo">Recibo</option>
+                            <option value="extracto">Extracto</option>
+                          </select>
+                        </label>
+                        <label className="block space-y-1 text-xs font-medium text-slate-500">
+                          <span className="uppercase tracking-wide text-slate-400">Valor</span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={documentForm.amount}
+                            onChange={(event) => updateDocumentForm('amount', event.target.value)}
+                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-900 focus:ring-slate-900/10"
+                          />
+                        </label>
+                        <label className="block space-y-1 text-xs font-medium text-slate-500">
+                          <span className="uppercase tracking-wide text-slate-400">Moeda</span>
+                          <input
+                            type="text"
+                            maxLength={3}
+                            value={documentForm.currency}
+                            onChange={(event) => updateDocumentForm('currency', event.target.value.toUpperCase())}
+                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm uppercase text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-900 focus:ring-slate-900/10"
+                          />
+                        </label>
+                        <label className="block space-y-1 text-xs font-medium text-slate-500">
+                          <span className="uppercase tracking-wide text-slate-400">Vencimento</span>
+                          <input
+                            type="date"
+                            value={documentForm.dueDate}
+                            onChange={(event) => updateDocumentForm('dueDate', event.target.value)}
+                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10"
+                          />
+                        </label>
+                        <label className="block space-y-1 text-xs font-medium text-slate-500 md:col-span-2">
+                          <span className="uppercase tracking-wide text-slate-400">Empresa</span>
+                          <input
+                            type="text"
+                            value={documentForm.companyName}
+                            onChange={(event) => updateDocumentForm('companyName', event.target.value)}
+                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-900 focus:ring-slate-900/10"
+                          />
+                        </label>
+                        <label className="block space-y-1 text-xs font-medium text-slate-500">
+                          <span className="uppercase tracking-wide text-slate-400">Conta / IBAN</span>
+                          <input
+                            type="text"
+                            value={documentForm.statementAccountIban}
+                            onChange={(event) => updateDocumentForm('statementAccountIban', event.target.value)}
+                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-900 focus:ring-slate-900/10"
+                          />
+                        </label>
+                        <label className="block space-y-1 text-xs font-medium text-slate-500">
+                          <span className="uppercase tracking-wide text-slate-400">Sugestão de conta</span>
+                          <input
+                            type="text"
+                            value={documentForm.accountHint}
+                            onChange={(event) => updateDocumentForm('accountHint', event.target.value)}
+                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-900 focus:ring-slate-900/10"
+                          />
+                        </label>
+                        <label className="block space-y-1 text-xs font-medium text-slate-500">
+                          <span className="uppercase tracking-wide text-slate-400">Tipo de despesa</span>
+                          <input
+                            type="text"
+                            value={documentForm.expenseType}
+                            onChange={(event) => updateDocumentForm('expenseType', event.target.value)}
+                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-900 focus:ring-slate-900/10"
+                          />
+                        </label>
+                        <label className="block space-y-1 text-xs font-medium text-slate-500">
+                          <span className="uppercase tracking-wide text-slate-400">Fornecedor</span>
+                          <select
+                            value={documentForm.supplierId}
+                            onChange={(event) => updateDocumentForm('supplierId', event.target.value)}
+                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10"
+                          >
+                            <option value="">Sem fornecedor</option>
+                            {suppliers.map((supplier) => (
+                              <option key={supplier.id} value={supplier.id}>
+                                {supplier.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="block space-y-1 text-xs font-medium text-slate-500">
+                          <span className="uppercase tracking-wide text-slate-400">NIF fornecedor</span>
+                          <input
+                            type="text"
+                            value={documentForm.supplierTaxId}
+                            onChange={(event) => updateDocumentForm('supplierTaxId', event.target.value)}
+                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-900 focus:ring-slate-900/10"
+                          />
+                        </label>
+                        <label className="md:col-span-2 block space-y-1 text-xs font-medium text-slate-500">
+                          <span className="uppercase tracking-wide text-slate-400">Notas</span>
+                          <textarea
+                            value={documentForm.notes}
+                            onChange={(event) => updateDocumentForm('notes', event.target.value)}
+                            rows={3}
+                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-900 focus:ring-slate-900/10"
+                          />
+                        </label>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={handleSaveDocument}
+                          disabled={isSavingDocument}
+                          className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900 disabled:opacity-60"
+                        >
+                          <Save className="h-4 w-4" />
+                          {isSavingDocument ? 'A guardar…' : 'Guardar'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={cancelEditingDocument}
+                          className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-500 shadow-sm transition hover:border-slate-300 hover:text-slate-900"
+                        >
+                          <XCircle className="h-4 w-4" />
+                          Cancelar
+                        </button>
+                      </div>
+                      {(documentError || documentFeedback) && (
+                        <p
+                          className={`rounded-xl border px-3 py-2 text-xs ${
+                            documentError
+                              ? 'border-rose-200 bg-rose-50 text-rose-700'
+                              : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                          }`}
+                        >
+                          {documentError ?? documentFeedback}
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
               </motion.article>
             );
