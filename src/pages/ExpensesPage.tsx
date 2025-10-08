@@ -70,9 +70,10 @@ function ExpensesPage() {
 
   useEffect(() => {
     if (!editingId) {
+      const defaultAccountId = accounts[0]?.id || '';
       setFormState((prev) => ({
         ...prev,
-        accountId: prev.accountId || accounts[0]?.id ?? ''
+        accountId: prev.accountId || defaultAccountId
       }));
     }
   }, [accounts, editingId]);

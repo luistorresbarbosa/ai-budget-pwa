@@ -175,7 +175,9 @@ function TransfersPage() {
     };
   }, [accounts, documents]);
 
-  function handleChange(event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) {
+  function handleChange(
+    event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
+  ) {
     const { name, value } = event.target;
     setDraft((prev) => ({
       ...prev,
