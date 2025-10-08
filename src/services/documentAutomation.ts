@@ -7,7 +7,6 @@ import type {
   Supplier,
   TimelineEntry
 } from '../data/models';
-import { persistAccount } from './accounts';
 import { persistExpense } from './expenses';
 import { persistSupplier } from './suppliers';
 import { persistTimelineEntry } from './timeline';
@@ -39,14 +38,12 @@ interface ProcessDocumentCallbacks {
 
 interface EnsureAccountOptions {
   accountHint?: string;
-  document: DocumentMetadata;
   existingAccounts: Account[];
 }
 
 interface EnsureAccountResult {
   account: Account | undefined;
   accounts: Account[];
-  created: boolean;
 }
 
 interface EnsureSupplierResult {
@@ -74,46 +71,19 @@ function normaliseIdentifier(value: string): string {
     .toLowerCase();
 }
 
-function buildAutoAccountId(
-  base: string | undefined,
-  documentId: string,
-  existingAccounts: Account[]
-): string {
-  const baseIdentifier = normaliseIdentifier(base ?? '') || normaliseIdentifier(documentId) || crypto.randomUUID();
-  const trimmedBase = baseIdentifier.slice(-24) || crypto.randomUUID().replace(/[^a-z0-9]/gi, '').slice(-24);
-  let candidate = `acc-auto-${trimmedBase}`;
-  let counter = 1;
-  while (existingAccounts.some((account) => account.id === candidate)) {
-    const suffix = `-${counter++}`;
-    candidate = `acc-auto-${trimmedBase.slice(0, Math.max(4, 24 - suffix.length))}${suffix}`;
-  }
-  return candidate;
-}
-
-function isLikelyIban(candidate: string | undefined): boolean {
-  if (!candidate) {
-    return false;
-  }
-  const normalised = candidate.replace(/\s+/g, '').toUpperCase();
-  if (normalised.length < 15) {
-    return false;
-  }
-  return /^[A-Z]{2}[0-9A-Z]{13,32}$/.test(normalised);
-}
-
 function ensureAccount(options: EnsureAccountOptions): EnsureAccountResult {
-  const { accountHint, document, existingAccounts } = options;
+  const { accountHint, existingAccounts } = options;
   const trimmedHint = accountHint?.trim();
 
   if (trimmedHint) {
     const matched = findAccountByHint(trimmedHint, existingAccounts);
     if (matched) {
-      return { account: matched, accounts: existingAccounts, created: false };
+      return { account: matched, accounts: existingAccounts };
     }
   }
 
   // Do not auto-create accounts; require manual setup
-  return { account: undefined, accounts: existingAccounts, created: false };
+  return { account: undefined, accounts: existingAccounts };
 }
 
 function ensureSupplier(document: DocumentMetadata, existingSuppliers: Supplier[]): EnsureSupplierResult {
@@ -521,7 +491,6 @@ function buildRecurringExpense(
 
 async function ensureAccountPersisted(
   ensured: EnsureAccountResult,
-  firebaseConfig: FirebaseConfig,
   callbacks: ProcessDocumentCallbacks
 ): Promise<Account[]> {
   if (!ensured.account) {
@@ -565,11 +534,10 @@ async function processInvoiceDocument(
     : undefined;
   const accountResult = ensureAccount({
     accountHint: document.accountHint,
-    document,
     existingAccounts: accountsSnapshot
   });
 
-  const updatedAccounts = await ensureAccountPersisted(accountResult, firebaseConfig, callbacks);
+  const updatedAccounts = await ensureAccountPersisted(accountResult, callbacks);
 
   const existingExpense = expensesSnapshot.find(
     (expense) =>
@@ -648,11 +616,10 @@ async function processStatementDocument(
   const statementAccountHint = document.statementAccountIban ?? document.accountHint;
   const statementAccountResult = ensureAccount({
     accountHint: statementAccountHint,
-    document,
     existingAccounts: currentAccounts
   });
 
-  currentAccounts = await ensureAccountPersisted(statementAccountResult, firebaseConfig, callbacks);
+  currentAccounts = await ensureAccountPersisted(statementAccountResult, callbacks);
   const statementAccountId = statementAccountResult.account?.id;
 
   for (const candidate of recurringExpenses) {
@@ -662,11 +629,10 @@ async function processStatementDocument(
 
     const accountResult = ensureAccount({
       accountHint: candidate.accountHint ?? statementAccountHint,
-      document,
       existingAccounts: currentAccounts
     });
 
-    currentAccounts = await ensureAccountPersisted(accountResult, firebaseConfig, callbacks);
+    currentAccounts = await ensureAccountPersisted(accountResult, callbacks);
 
     const accountId = accountResult.account?.id ?? statementAccountId;
     if (!accountId) {
