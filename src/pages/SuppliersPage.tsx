@@ -46,9 +46,54 @@ export default function SuppliersPage() {
   const [error, setError] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  const orderedSuppliers = useMemo(() => {
-    return suppliers.slice().sort((a, b) => a.name.localeCompare(b.name));
+  const { supplierListItems, canonicalCount } = useMemo(() => {
+    const canonicalSuppliers = suppliers
+      .filter((supplier) => !supplier.referenceToId)
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    const canonicalIds = new Set(canonicalSuppliers.map((supplier) => supplier.id));
+    const referencesBySupplierId = suppliers.reduce<Record<string, Supplier[]>>((accumulator, supplier) => {
+      if (!supplier.referenceToId) {
+        return accumulator;
+      }
+
+      const referenceList = accumulator[supplier.referenceToId] ?? [];
+      referenceList.push(supplier);
+      accumulator[supplier.referenceToId] = referenceList;
+      return accumulator;
+    }, {});
+
+    Object.values(referencesBySupplierId).forEach((references) => {
+      references.sort((a, b) => a.name.localeCompare(b.name));
+    });
+
+    const canonicalItems = canonicalSuppliers.map((supplier) => ({
+      supplier,
+      references: referencesBySupplierId[supplier.id] ?? [],
+      isOrphanReference: false
+    }));
+
+    const orphanReferences = suppliers
+      .filter((supplier) => supplier.referenceToId && !canonicalIds.has(supplier.referenceToId))
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    const orphanItems = orphanReferences.map((supplier) => ({
+      supplier,
+      references: [] as Supplier[],
+      isOrphanReference: true
+    }));
+
+    return { supplierListItems: [...canonicalItems, ...orphanItems], canonicalCount: canonicalSuppliers.length };
   }, [suppliers]);
+
+  const referenceTargets = useMemo(() => {
+    return suppliers
+      .filter((supplier) => !supplier.referenceToId && supplier.id !== editingId)
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [editingId, suppliers]);
 
   const handleEdit = (supplier: Supplier) => {
     setEditingId(supplier.id);
@@ -292,13 +337,11 @@ export default function SuppliersPage() {
               className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10"
             >
               <option value="">Nenhuma</option>
-              {suppliers
-                .filter((s) => s.id !== editingId)
-                .map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
+              {referenceTargets.map((target) => (
+                <option key={target.id} value={target.id}>
+                  {target.name}
+                </option>
+              ))}
             </select>
             <p className="text-[11px] text-slate-400">
               Quando definido, este fornecedor é apenas uma referência e será sempre mapeado para o fornecedor selecionado.
@@ -349,7 +392,21 @@ export default function SuppliersPage() {
             )}
           </div>
         </form>
-      </Modal>
+
+        <div className="flex flex-col justify-between gap-6 rounded-3xl border border-slate-200 bg-slate-50/60 p-5 shadow-sm">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Resumo</p>
+            <h3 className="text-lg font-semibold text-slate-900">Catálogo ativo</h3>
+            <p className="mt-2 text-3xl font-semibold text-slate-900">{canonicalCount}</p>
+            <p className="mt-1 text-xs uppercase tracking-wide text-slate-400">
+              {canonicalCount === 1 ? 'Fornecedor principal' : 'Fornecedores principais'}
+            </p>
+          </div>
+          <p className="text-xs text-slate-500">
+            Use referências manuais para consolidar nomes alternativos no fornecedor correto.
+          </p>
+        </div>
+      </motion.div>
 
       <motion.div layout className="space-y-4">
         <header className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -359,7 +416,7 @@ export default function SuppliersPage() {
           </div>
         </header>
         <motion.ul layout className="grid gap-3 md:grid-cols-2">
-          {orderedSuppliers.map((supplier) => (
+          {supplierListItems.map(({ supplier, references, isOrphanReference }) => (
             <motion.li
               key={supplier.id}
               layout
@@ -381,16 +438,65 @@ export default function SuppliersPage() {
                     )}
                   </div>
                 </div>
-                {supplier.referenceToId && (
-                  <span className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-indigo-700">
-                    Referência de
+                {isOrphanReference && (
+                  <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-amber-700">
+                    Referência sem principal
                   </span>
                 )}
               </div>
-              {supplier.referenceToId && (
+              {supplier.referenceToId && !isOrphanReference && (
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-500">
                   <p className="font-semibold uppercase tracking-wide text-slate-400">Referência de</p>
                   <p className="mt-1">{suppliers.find((s) => s.id === supplier.referenceToId)?.name || supplier.referenceToId}</p>
+                </div>
+              )}
+              {isOrphanReference && supplier.referenceToId && (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-700">
+                  <p className="font-semibold uppercase tracking-wide">Referência configurada para</p>
+                  <p className="mt-1 text-amber-800">{supplier.referenceToId}</p>
+                  <p className="mt-2 text-[10px] text-amber-700/80">
+                    O fornecedor referenciado não está disponível. Atualize ou remova esta referência.
+                  </p>
+                </div>
+              )}
+              {references.length > 0 && (
+                <div className="rounded-2xl border border-indigo-100 bg-indigo-50/60 px-3 py-2 text-[11px] text-slate-500">
+                  <p className="font-semibold uppercase tracking-wide text-indigo-500">Sub-fornecedores</p>
+                  <ul className="mt-2 space-y-1">
+                    {references.map((reference) => (
+                      <li
+                        key={reference.id}
+                        className="flex items-center justify-between gap-2 rounded-xl border border-indigo-100 bg-white px-3 py-2 text-[11px]"
+                      >
+                        <div className="space-y-1">
+                          <p className="font-semibold text-slate-700">{reference.name}</p>
+                          {reference.metadata?.taxId && (
+                            <p className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-slate-400">
+                              <ShieldCheck className="h-3 w-3" /> {reference.metadata.taxId}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleEdit(reference)}
+                            className="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600 shadow-sm transition hover:border-slate-300 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900"
+                          >
+                            <Save className="h-3.5 w-3.5" /> Editar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(reference.id)}
+                            disabled={deletingId === reference.id}
+                            className="inline-flex items-center gap-1 rounded-xl border border-rose-200 bg-rose-50 px-3 py-1 text-[11px] font-semibold text-rose-600 shadow-sm transition hover:border-rose-300 hover:bg-rose-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-500 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            {deletingId === reference.id ? 'A remover…' : 'Remover'}
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               )}
               {supplier.metadata?.accountHints && supplier.metadata.accountHints.length > 0 && (
@@ -427,7 +533,7 @@ export default function SuppliersPage() {
               </div>
             </motion.li>
           ))}
-          {orderedSuppliers.length === 0 && (
+          {supplierListItems.length === 0 && (
             <li className="rounded-3xl border border-dashed border-slate-300 bg-white/60 p-6 text-sm text-slate-500">
               Ainda não existem fornecedores. Adicione o primeiro para começar a mapear faturas.
             </li>
