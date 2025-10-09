@@ -14,6 +14,7 @@ import { useAppState } from '../state/AppStateContext';
 import type { Supplier } from '../data/models';
 import { validateFirebaseConfig } from '../services/firebase';
 import { persistSupplier, removeSupplierById } from '../services/suppliers';
+import { Modal } from '../components/Modal';
 
 interface SupplierFormState {
   id?: string;
@@ -43,6 +44,7 @@ export default function SuppliersPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   const orderedSuppliers = useMemo(() => {
     return suppliers.slice().sort((a, b) => a.name.localeCompare(b.name));
@@ -57,13 +59,26 @@ export default function SuppliersPage() {
       notes: supplier.metadata?.notes ?? '',
       referenceToId: supplier.referenceToId
     });
-    setFeedback(null);
+    setIsModalOpen(true);
     setError(null);
   };
 
   const resetForm = () => {
     setEditingId(null);
     setFormState(EMPTY_FORM);
+  };
+
+  const openCreateModal = () => {
+    resetForm();
+    setError(null);
+    setIsModalOpen(true);
+  };
+
+  const closeModal = () => {
+    setIsModalOpen(false);
+    setError(null);
+    setDeletingId(null);
+    resetForm();
   };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -121,6 +136,7 @@ export default function SuppliersPage() {
       addSupplier(supplier);
       setFeedback(editingId ? 'Fornecedor atualizado com sucesso.' : 'Fornecedor criado com sucesso.');
       resetForm();
+      setIsModalOpen(false);
     } catch (submitError) {
       console.error('Não foi possível guardar o fornecedor.', submitError);
       setError(
@@ -149,6 +165,7 @@ export default function SuppliersPage() {
       removeSupplier(supplierId);
       if (editingId === supplierId) {
         resetForm();
+        setIsModalOpen(false);
       }
       setFeedback('Fornecedor removido.');
     } catch (deleteError) {
@@ -170,32 +187,70 @@ export default function SuppliersPage() {
       transition={{ duration: 0.35, ease: 'easeOut' }}
       className="space-y-8"
     >
-      <header className="space-y-2">
-        <h1 className="text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl">Fornecedores</h1>
-        <p className="max-w-2xl text-sm text-slate-500 sm:text-base">
-          Centralize os fornecedores para facilitar o reconhecimento automático das despesas e extratos.
-        </p>
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="space-y-2">
+          <h1 className="text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl">Fornecedores</h1>
+          <p className="max-w-2xl text-sm text-slate-500 sm:text-base">
+            Centralize os fornecedores para facilitar o reconhecimento automático das despesas e extratos.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={openCreateModal}
+          className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900"
+        >
+          <PlusCircle className="h-4 w-4" /> Novo fornecedor
+        </button>
       </header>
+
+      <AnimatePresence>
+        {!isModalOpen && (feedback || error) && (
+          <motion.p
+            key={error ?? feedback ?? 'feedback'}
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.2 }}
+            className={`rounded-2xl border px-4 py-3 text-sm shadow-sm ${
+              error
+                ? 'border-rose-200 bg-rose-50 text-rose-700'
+                : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+            }`}
+          >
+            {error ?? feedback}
+          </motion.p>
+        )}
+      </AnimatePresence>
 
       <motion.div
         layout
-        className="grid gap-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm md:grid-cols-[1fr_1fr]"
+        className="rounded-3xl border border-slate-200 bg-slate-50/60 p-5 shadow-sm"
+      >
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Catálogo ativo</p>
+            <h3 className="mt-1 text-3xl font-semibold text-slate-900">{suppliers.length}</h3>
+            <p className="mt-1 text-xs uppercase tracking-wide text-slate-400">
+              {suppliers.length === 1 ? 'Fornecedor registado' : 'Fornecedores registados'}
+            </p>
+          </div>
+          <p className="max-w-sm text-xs text-slate-500">
+            Use referências manuais para consolidar nomes alternativos no fornecedor correto.
+          </p>
+        </div>
+      </motion.div>
+
+      <Modal
+        open={isModalOpen}
+        onClose={closeModal}
+        title={editingId ? 'Editar fornecedor' : 'Novo fornecedor'}
+        description={
+          editingId
+            ? 'Atualize os dados do fornecedor selecionado e mantenha o catálogo limpo.'
+            : 'Adicione fornecedores para acelerar o mapeamento automático de despesas.'
+        }
       >
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                {editingId ? 'Editar fornecedor' : 'Novo fornecedor'}
-              </p>
-              <h2 className="text-lg font-semibold text-slate-900">
-                {editingId ? 'Atualize os detalhes' : 'Adicionar novo fornecedor'}
-              </h2>
-            </div>
-            <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] uppercase tracking-wide text-slate-400">
-              {editingId ? 'Em edição' : 'Catálogo'}
-            </span>
-          </div>
-
           <label className="block space-y-2 text-sm text-slate-600">
             <span className="text-xs uppercase tracking-wide text-slate-400">Nome do fornecedor</span>
             <input
@@ -250,6 +305,21 @@ export default function SuppliersPage() {
             </p>
           </label>
 
+          <AnimatePresence>
+            {error && (
+              <motion.p
+                key={error}
+                initial={{ opacity: 0, y: -6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.2 }}
+                className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 shadow-sm"
+              >
+                {error}
+              </motion.p>
+            )}
+          </AnimatePresence>
+
           <div className="flex flex-wrap items-center gap-3">
             <button
               type="submit"
@@ -259,51 +329,27 @@ export default function SuppliersPage() {
               {editingId ? <Save className="h-4 w-4" /> : <PlusCircle className="h-4 w-4" />}
               {editingId ? 'Guardar alterações' : 'Adicionar fornecedor'}
             </button>
+            <button
+              type="button"
+              onClick={closeModal}
+              className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-600 shadow-sm transition hover:border-slate-400 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900"
+            >
+              <XCircle className="h-4 w-4" /> Cancelar
+            </button>
             {editingId && (
               <button
                 type="button"
-                onClick={resetForm}
-                className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-600 shadow-sm transition hover:border-slate-400 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900"
+                onClick={() => handleDelete(editingId)}
+                disabled={deletingId === editingId}
+                className="inline-flex items-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700 shadow-sm transition hover:border-rose-300 hover:bg-rose-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                <XCircle className="h-4 w-4" /> Cancelar
+                <Trash2 className="h-4 w-4" />
+                {deletingId === editingId ? 'A remover…' : 'Remover'}
               </button>
             )}
           </div>
-
-          <AnimatePresence>
-            {(error || feedback) && (
-              <motion.p
-                key={error ?? feedback ?? 'feedback'}
-                initial={{ opacity: 0, y: -6 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -6 }}
-                transition={{ duration: 0.2 }}
-                className={`rounded-2xl border px-4 py-3 text-sm shadow-sm ${
-                  error
-                    ? 'border-rose-200 bg-rose-50 text-rose-700'
-                    : 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                }`}
-              >
-                {error ?? feedback}
-              </motion.p>
-            )}
-          </AnimatePresence>
         </form>
-
-        <div className="flex flex-col justify-between gap-6 rounded-3xl border border-slate-200 bg-slate-50/60 p-5 shadow-sm">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Resumo</p>
-            <h3 className="text-lg font-semibold text-slate-900">Catálogo ativo</h3>
-            <p className="mt-2 text-3xl font-semibold text-slate-900">{suppliers.length}</p>
-            <p className="mt-1 text-xs uppercase tracking-wide text-slate-400">
-              {suppliers.length === 1 ? 'Fornecedor registado' : 'Fornecedores registados'}
-            </p>
-          </div>
-          <p className="text-xs text-slate-500">
-            Use referências manuais para consolidar nomes alternativos no fornecedor correto.
-          </p>
-        </div>
-      </motion.div>
+      </Modal>
 
       <motion.div layout className="space-y-4">
         <header className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">

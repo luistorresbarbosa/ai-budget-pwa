@@ -14,6 +14,7 @@ import { useAppState } from '../state/AppStateContext';
 import type { Account, AccountType } from '../data/models';
 import { validateFirebaseConfig } from '../services/firebase';
 import { persistAccount, removeAccountById } from '../services/accounts';
+import { Modal } from '../components/Modal';
 
 const typeLabels: Record<AccountType, string> = {
   corrente: 'Conta corrente',
@@ -95,6 +96,7 @@ export default function AccountsPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   const totalAccounts = useMemo(() => accounts.length, [accounts]);
 
@@ -112,13 +114,25 @@ export default function AccountsPage() {
       iban: account.metadata?.iban ?? '',
       currency: account.currency
     });
-    setFeedback(null);
+    setIsModalOpen(true);
     setError(null);
   };
 
   const resetForm = () => {
     setEditingId(null);
     setFormState(EMPTY_FORM);
+  };
+
+  const openCreateModal = () => {
+    resetForm();
+    setError(null);
+    setIsModalOpen(true);
+  };
+
+  const closeModal = () => {
+    setIsModalOpen(false);
+    setError(null);
+    resetForm();
   };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -173,6 +187,7 @@ export default function AccountsPage() {
       addAccount(account);
       setFeedback(editingId ? 'Conta atualizada com sucesso.' : 'Conta criada com sucesso.');
       resetForm();
+      setIsModalOpen(false);
     } catch (submitError) {
       console.error('Não foi possível guardar a conta.', submitError);
       setError(
@@ -201,6 +216,7 @@ export default function AccountsPage() {
       removeAccount(accountId);
       if (editingId === accountId) {
         resetForm();
+        setIsModalOpen(false);
       }
       setFeedback('Conta removida.');
     } catch (deleteError) {
@@ -230,25 +246,83 @@ export default function AccountsPage() {
         </p>
       </header>
 
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="space-y-2">
+          <h2 className="text-lg font-semibold text-slate-900">Resumo</h2>
+          <p className="text-sm text-slate-500">
+            Consulte o estado das contas existentes ou adicione novas através do popup.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={openCreateModal}
+          className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900"
+        >
+          <PlusCircle className="h-4 w-4" /> Nova conta
+        </button>
+      </div>
+
       <motion.div
         layout
-        className="grid gap-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm md:grid-cols-[1fr_1fr]"
+        className="rounded-3xl border border-slate-200 bg-slate-50/60 p-5 shadow-sm"
+      >
+        <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Contas registadas</p>
+            <p className="mt-2 text-3xl font-semibold text-slate-900">{totalAccounts}</p>
+            <p className="mt-1 text-xs uppercase tracking-wide text-slate-400">
+              {accounts.length === 0
+                ? 'Nenhuma conta registada'
+                : accounts.length === 1
+                    ? '1 conta sincronizada'
+                    : `${accounts.length} contas sincronizadas`}
+            </p>
+          </div>
+          <div className="space-y-2 text-sm text-slate-600">
+            {pendingValidation > 0 && (
+              <p className="inline-flex items-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-amber-700">
+                {pendingValidation === 1
+                  ? '1 conta aguarda validação manual'
+                  : `${pendingValidation} contas aguardam validação manual`}
+              </p>
+            )}
+            <p className="max-w-sm text-xs text-slate-500">
+              Organize as suas contas para facilitar a classificação de despesas e transferências.
+            </p>
+          </div>
+        </div>
+      </motion.div>
+
+      <AnimatePresence>
+        {!isModalOpen && (feedback || error) && (
+          <motion.p
+            key={feedback ?? error ?? 'status'}
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.2 }}
+            className={`rounded-2xl border px-4 py-3 text-sm shadow-sm ${
+              error
+                ? 'border-rose-200 bg-rose-50 text-rose-700'
+                : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+            }`}
+          >
+            {error ?? feedback}
+          </motion.p>
+        )}
+      </AnimatePresence>
+
+      <Modal
+        open={isModalOpen}
+        onClose={closeModal}
+        title={editingId ? 'Editar conta' : 'Nova conta'}
+        description={
+          editingId
+            ? 'Atualize os detalhes da conta seleccionada e sincronize com o Firebase.'
+            : 'Preencha os detalhes da conta para ficar disponível em todas as áreas.'
+        }
       >
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                {editingId ? 'Editar conta' : 'Nova conta'}
-              </p>
-              <h2 className="text-lg font-semibold text-slate-900">
-                {editingId ? 'Atualize os detalhes da conta' : 'Adicionar nova conta'}
-              </h2>
-            </div>
-            <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] uppercase tracking-wide text-slate-400">
-              {editingId ? 'Em edição' : 'Rápido'}
-            </span>
-          </div>
-
           <label className="block space-y-2 text-sm text-slate-600">
             <span className="text-xs uppercase tracking-wide text-slate-400">Nome da conta</span>
             <input
@@ -298,9 +372,22 @@ export default function AccountsPage() {
             </label>
           </div>
 
-          {/* Alias removido: a ligação é feita por IBAN existente com aproximação >= 75% */}
+          <AnimatePresence>
+            {error && (
+              <motion.p
+                key={error}
+                initial={{ opacity: 0, y: -6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.2 }}
+                className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 shadow-sm"
+              >
+                {error}
+              </motion.p>
+            )}
+          </AnimatePresence>
 
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3 pt-1">
             <button
               type="submit"
               disabled={isSaving}
@@ -309,62 +396,16 @@ export default function AccountsPage() {
               {editingId ? <Save className="h-4 w-4" /> : <PlusCircle className="h-4 w-4" />}
               {editingId ? 'Guardar alterações' : 'Adicionar conta'}
             </button>
-            {editingId && (
-              <button
-                type="button"
-                onClick={resetForm}
-                className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-600 shadow-sm transition hover:border-slate-400 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900"
-              >
-                <XCircle className="h-4 w-4" /> Cancelar
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={closeModal}
+              className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-600 shadow-sm transition hover:border-slate-400 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900"
+            >
+              <XCircle className="h-4 w-4" /> Cancelar
+            </button>
           </div>
-
-          <AnimatePresence>
-            {(error || feedback) && (
-              <motion.p
-                key={error ?? feedback ?? 'feedback'}
-                initial={{ opacity: 0, y: -6 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -6 }}
-                transition={{ duration: 0.2 }}
-                className={`rounded-2xl border px-4 py-3 text-sm shadow-sm ${
-                  error
-                    ? 'border-rose-200 bg-rose-50 text-rose-700'
-                    : 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                }`}
-              >
-                {error ?? feedback}
-              </motion.p>
-            )}
-          </AnimatePresence>
         </form>
-
-        <div className="flex flex-col justify-between gap-6 rounded-3xl border border-slate-200 bg-slate-50/60 p-5 shadow-sm">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Resumo</p>
-            <h3 className="text-lg font-semibold text-slate-900">Contas registadas</h3>
-            <p className="mt-2 text-3xl font-semibold text-slate-900">{totalAccounts}</p>
-            <p className="mt-1 text-xs uppercase tracking-wide text-slate-400">
-              {accounts.length === 0
-                ? 'Nenhuma conta registada'
-                : accounts.length === 1
-                    ? '1 conta sincronizada'
-                    : `${accounts.length} contas sincronizadas`}
-            </p>
-            {pendingValidation > 0 && (
-              <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-amber-600">
-                {pendingValidation === 1
-                  ? '1 conta aguarda validação manual'
-                  : `${pendingValidation} contas aguardam validação manual`}
-              </p>
-            )}
-          </div>
-          <p className="text-xs text-slate-500">
-            Organize as suas contas para facilitar a classificação de despesas e transferências.
-          </p>
-        </div>
-      </motion.div>
+      </Modal>
 
       <motion.div layout className="space-y-4">
         <header className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">

@@ -1,10 +1,21 @@
 import { FormEvent, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { AlertCircle, ArrowRightLeft, CalendarDays, Euro, Pencil, Save, Trash2, XCircle } from 'lucide-react';
+import {
+  AlertCircle,
+  ArrowRightLeft,
+  CalendarDays,
+  Euro,
+  Pencil,
+  PlusCircle,
+  Save,
+  Trash2,
+  XCircle
+} from 'lucide-react';
 import { useAppState } from '../state/AppStateContext';
 import type { DocumentMetadata, Transfer } from '../data/models';
 import { validateFirebaseConfig } from '../services/firebase';
 import { persistTransfer, removeTransferById } from '../services/transfers';
+import { Modal } from '../components/Modal';
 
 const defaultTransfer = (fromAccountId: string, toAccountId: string): Transfer => ({
   id: crypto.randomUUID(),
@@ -32,16 +43,30 @@ function TransfersPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   const resetDraft = () => {
     setEditingId(null);
     setDraft(defaultTransfer(accounts[0]?.id ?? '', accounts[1]?.id ?? accounts[0]?.id ?? ''));
   };
 
+  const openCreateModal = () => {
+    resetDraft();
+    setError(null);
+    setIsModalOpen(true);
+  };
+
+  const closeModal = () => {
+    setIsModalOpen(false);
+    setError(null);
+    setDeletingId(null);
+    resetDraft();
+  };
+
   const handleEdit = (transfer: Transfer) => {
     setEditingId(transfer.id);
     setDraft({ ...transfer });
-    setFeedback(null);
+    setIsModalOpen(true);
     setError(null);
   };
 
@@ -237,6 +262,7 @@ function TransfersPage() {
       addTransfer(transfer);
       setFeedback(editingId ? 'Transferência atualizada com sucesso.' : 'Transferência criada com sucesso.');
       resetDraft();
+      setIsModalOpen(false);
     } catch (submitError) {
       console.error('Não foi possível guardar a transferência.', submitError);
       setError(
@@ -265,6 +291,7 @@ function TransfersPage() {
       removeTransfer(transferId);
       if (editingId === transferId) {
         resetDraft();
+        setIsModalOpen(false);
       }
       setFeedback('Transferência removida.');
     } catch (deleteError) {
@@ -286,12 +313,189 @@ function TransfersPage() {
       transition={{ duration: 0.35, ease: 'easeOut' }}
       className="space-y-8"
     >
-      <header className="space-y-2">
-        <h1 className="text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl">Transferências</h1>
-        <p className="max-w-2xl text-sm text-slate-500 sm:text-base">
-          Planeie transferências entre contas e acompanhe as execuções futuras.
-        </p>
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="space-y-2">
+          <h1 className="text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl">Transferências</h1>
+          <p className="max-w-2xl text-sm text-slate-500 sm:text-base">
+            Planeie transferências entre contas e acompanhe as execuções futuras.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={openCreateModal}
+          className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900"
+        >
+          <PlusCircle className="h-4 w-4" /> Nova transferência
+        </button>
       </header>
+
+      <AnimatePresence>
+        {!isModalOpen && (feedback || error) && (
+          <motion.p
+            key={(feedback ?? error) as string}
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            className={`rounded-2xl border px-4 py-3 text-sm shadow-sm ${
+              error ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+            }`}
+          >
+            {error ?? feedback}
+          </motion.p>
+        )}
+      </AnimatePresence>
+
+      <Modal
+        open={isModalOpen}
+        onClose={closeModal}
+        title={editingId ? 'Editar transferência' : 'Agendar transferência'}
+        description={
+          editingId
+            ? 'Ajuste os detalhes da transferência seleccionada antes de sincronizar.'
+            : 'Defina uma nova transferência entre contas e mantenha o plano actualizado.'
+        }
+      >
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="block space-y-2 text-sm text-slate-600">
+              <span className="text-xs uppercase tracking-wide text-slate-400">De</span>
+              <select
+                name="fromAccountId"
+                value={draft.fromAccountId}
+                onChange={handleChange}
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10"
+              >
+                <option value="">Selecionar conta…</option>
+                {accounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block space-y-2 text-sm text-slate-600">
+              <span className="text-xs uppercase tracking-wide text-slate-400">Para</span>
+              <select
+                name="toAccountId"
+                value={draft.toAccountId}
+                onChange={handleChange}
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10"
+              >
+                <option value="">Selecionar conta…</option>
+                {accounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block space-y-2 text-sm text-slate-600">
+              <span className="text-xs uppercase tracking-wide text-slate-400">Valor</span>
+              <input
+                type="number"
+                name="amount"
+                value={Number.isFinite(draft.amount) ? draft.amount : ''}
+                step="0.01"
+                onChange={handleChange}
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-900 focus:ring-slate-900/10"
+              />
+            </label>
+            <label className="block space-y-2 text-sm text-slate-600">
+              <span className="text-xs uppercase tracking-wide text-slate-400">Moeda</span>
+              <input
+                type="text"
+                name="currency"
+                value={draft.currency}
+                onChange={handleChange}
+                maxLength={3}
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm uppercase text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-900 focus:ring-slate-900/10"
+              />
+            </label>
+            <label className="block space-y-2 text-sm text-slate-600">
+              <span className="text-xs uppercase tracking-wide text-slate-400">Data agendada</span>
+              <input
+                type="date"
+                name="scheduleDate"
+                value={draft.scheduleDate ? draft.scheduleDate.substring(0, 10) : ''}
+                onChange={(event) =>
+                  setDraft((prev) => ({
+                    ...prev,
+                    scheduleDate: event.target.value ? new Date(event.target.value).toISOString() : ''
+                  }))
+                }
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10"
+              />
+            </label>
+            <label className="block space-y-2 text-sm text-slate-600">
+              <span className="text-xs uppercase tracking-wide text-slate-400">Estado</span>
+              <select
+                name="status"
+                value={draft.status}
+                onChange={handleChange}
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10"
+              >
+                <option value="agendado">Agendado</option>
+                <option value="executado">Executado</option>
+                <option value="falhado">Falhado</option>
+              </select>
+            </label>
+            <label className="sm:col-span-2 block space-y-2 text-sm text-slate-600">
+              <span className="text-xs uppercase tracking-wide text-slate-400">Notas</span>
+              <textarea
+                name="notes"
+                value={draft.notes ?? ''}
+                onChange={handleChange}
+                rows={3}
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-900 focus:ring-slate-900/10"
+                placeholder="Informações adicionais (opcional)"
+              />
+            </label>
+          </div>
+
+          <AnimatePresence>
+            {error && (
+              <motion.p
+                key={error}
+                initial={{ opacity: 0, y: -6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 shadow-sm"
+              >
+                {error}
+              </motion.p>
+            )}
+          </AnimatePresence>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="submit"
+              disabled={isSaving}
+              className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900 disabled:opacity-60"
+            >
+              <Save className="h-4 w-4" />
+              {isSaving ? 'A guardar…' : editingId ? 'Guardar alterações' : 'Criar transferência'}
+            </button>
+            <button
+              type="button"
+              onClick={closeModal}
+              className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-600 shadow-sm transition hover:border-slate-400 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900"
+            >
+              <XCircle className="h-4 w-4" /> Cancelar
+            </button>
+            {editingId && (
+              <button
+                type="button"
+                onClick={() => handleDelete(editingId)}
+                disabled={deletingId === editingId}
+                className="inline-flex items-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700 shadow-sm transition hover:border-rose-300 hover:bg-rose-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 disabled:opacity-60"
+              >
+                <Trash2 className="h-4 w-4" />
+                {deletingId === editingId ? 'A remover…' : 'Remover'}
+              </button>
+            )}
+          </div>
+        </form>
+      </Modal>
 
       <section className="space-y-4">
         <div className="space-y-1">
@@ -403,172 +607,6 @@ function TransfersPage() {
         )}
       </section>
 
-      <motion.form
-        onSubmit={handleSubmit}
-        className="space-y-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1, duration: 0.35, ease: 'easeOut' }}
-      >
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-semibold text-slate-900 sm:text-xl">
-              {editingId ? 'Editar transferência' : 'Agendar transferência'}
-            </h2>
-            <p className="text-xs text-slate-500">
-              {editingId
-                ? 'Atualize os detalhes da transferência selecionada.'
-                : 'Defina uma nova transferência entre contas.'}
-            </p>
-          </div>
-          {editingId && (
-            <button
-              type="button"
-              onClick={resetDraft}
-              className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-500 transition hover:border-slate-300 hover:text-slate-900"
-            >
-              <XCircle className="h-4 w-4" />
-              Cancelar edição
-            </button>
-          )}
-        </div>
-
-        <div className="grid gap-4 sm:grid-cols-2">
-          <label className="block space-y-2 text-sm text-slate-600">
-            <span className="text-xs uppercase tracking-wide text-slate-400">De</span>
-            <select
-              name="fromAccountId"
-              value={draft.fromAccountId}
-              onChange={handleChange}
-              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10"
-            >
-              <option value="">Selecionar conta…</option>
-              {accounts.map((account) => (
-                <option key={account.id} value={account.id}>
-                  {account.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block space-y-2 text-sm text-slate-600">
-            <span className="text-xs uppercase tracking-wide text-slate-400">Para</span>
-            <select
-              name="toAccountId"
-              value={draft.toAccountId}
-              onChange={handleChange}
-              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10"
-            >
-              <option value="">Selecionar conta…</option>
-              {accounts.map((account) => (
-                <option key={account.id} value={account.id}>
-                  {account.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block space-y-2 text-sm text-slate-600">
-            <span className="text-xs uppercase tracking-wide text-slate-400">Valor</span>
-            <input
-              type="number"
-              name="amount"
-              value={Number.isFinite(draft.amount) ? draft.amount : ''}
-              step="0.01"
-              onChange={handleChange}
-              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-900 focus:ring-slate-900/10"
-            />
-          </label>
-          <label className="block space-y-2 text-sm text-slate-600">
-            <span className="text-xs uppercase tracking-wide text-slate-400">Moeda</span>
-            <input
-              type="text"
-              name="currency"
-              value={draft.currency}
-              onChange={handleChange}
-              maxLength={3}
-              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm uppercase text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-900 focus:ring-slate-900/10"
-            />
-          </label>
-          <label className="block space-y-2 text-sm text-slate-600">
-            <span className="text-xs uppercase tracking-wide text-slate-400">Data agendada</span>
-            <input
-              type="date"
-              name="scheduleDate"
-              value={draft.scheduleDate ? draft.scheduleDate.substring(0, 10) : ''}
-              onChange={(event) =>
-                setDraft((prev) => ({
-                  ...prev,
-                  scheduleDate: event.target.value ? new Date(event.target.value).toISOString() : ''
-                }))
-              }
-              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10"
-            />
-          </label>
-          <label className="block space-y-2 text-sm text-slate-600">
-            <span className="text-xs uppercase tracking-wide text-slate-400">Estado</span>
-            <select
-              name="status"
-              value={draft.status}
-              onChange={handleChange}
-              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10"
-            >
-              <option value="agendado">Agendado</option>
-              <option value="executado">Executado</option>
-              <option value="falhado">Falhado</option>
-            </select>
-          </label>
-          <label className="sm:col-span-2 block space-y-2 text-sm text-slate-600">
-            <span className="text-xs uppercase tracking-wide text-slate-400">Notas</span>
-            <textarea
-              name="notes"
-              value={draft.notes ?? ''}
-              onChange={handleChange}
-              rows={3}
-              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-900 focus:ring-slate-900/10"
-              placeholder="Informações adicionais (opcional)"
-            />
-          </label>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="submit"
-            disabled={isSaving}
-            className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900 disabled:opacity-60"
-          >
-            <Save className="h-4 w-4" />
-            {isSaving ? 'A guardar…' : editingId ? 'Guardar alterações' : 'Criar transferência'}
-          </button>
-          {editingId && (
-            <button
-              type="button"
-              onClick={() => handleDelete(editingId)}
-              disabled={deletingId === editingId}
-              className="inline-flex items-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700 shadow-sm transition hover:border-rose-300 hover:bg-rose-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 disabled:opacity-60"
-            >
-              <Trash2 className="h-4 w-4" />
-              {deletingId === editingId ? 'A remover…' : 'Remover'}
-            </button>
-          )}
-        </div>
-
-        <AnimatePresence>
-          {(error || feedback) && (
-            <motion.p
-              key={(error ?? feedback) as string}
-              initial={{ opacity: 0, y: -6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -6 }}
-              className={`rounded-2xl border px-4 py-3 text-sm shadow-sm ${
-                error
-                  ? 'border-rose-200 bg-rose-50 text-rose-700'
-                  : 'border-emerald-200 bg-emerald-50 text-emerald-700'
-              }`}
-            >
-              {error ?? feedback}
-            </motion.p>
-          )}
-        </AnimatePresence>
-      </motion.form>
 
       <div className="space-y-4">
         <div className="flex items-center justify-between gap-2">
