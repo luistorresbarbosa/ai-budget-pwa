@@ -1,10 +1,11 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { CalendarDays, Euro, Pencil, RefreshCcw, Save, Trash2, XCircle } from 'lucide-react';
+import { CalendarDays, Euro, Pencil, PlusCircle, RefreshCcw, Save, Trash2, XCircle } from 'lucide-react';
 import { useAppState } from '../state/AppStateContext';
 import type { Expense } from '../data/models';
 import { validateFirebaseConfig } from '../services/firebase';
 import { persistExpense, removeExpenseMetadata } from '../services/expenses';
+import { Modal } from '../components/Modal';
 
 const statusStyles: Record<Expense['status'], string> = {
   planeado: 'border-amber-200 bg-amber-50 text-amber-700',
@@ -67,6 +68,7 @@ function ExpensesPage() {
   const [error, setError] = useState<string | null>(null);
   const [accountFilter, setAccountFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('todas');
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   useEffect(() => {
     if (!editingId) {
@@ -94,7 +96,7 @@ function ExpensesPage() {
       supplierId: expense.supplierId ?? '',
       documentId: expense.documentId ?? ''
     });
-    setFeedback(null);
+    setIsModalOpen(true);
     setError(null);
   };
 
@@ -104,6 +106,19 @@ function ExpensesPage() {
       ...EMPTY_FORM,
       accountId: accounts[0]?.id ?? ''
     });
+  };
+
+  const openCreateModal = () => {
+    resetForm();
+    setError(null);
+    setIsModalOpen(true);
+  };
+
+  const closeModal = () => {
+    setIsModalOpen(false);
+    setError(null);
+    setDeletingId(null);
+    resetForm();
   };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -169,6 +184,7 @@ function ExpensesPage() {
       addExpense(expense);
       setFeedback(editingId ? 'Despesa atualizada com sucesso.' : 'Despesa criada com sucesso.');
       resetForm();
+      setIsModalOpen(false);
     } catch (submitError) {
       console.error('Não foi possível guardar a despesa.', submitError);
       setError(
@@ -197,6 +213,7 @@ function ExpensesPage() {
       removeExpense(expenseId);
       if (editingId === expenseId) {
         resetForm();
+        setIsModalOpen(false);
       }
       setFeedback('Despesa removida.');
     } catch (deleteError) {
@@ -241,223 +258,235 @@ function ExpensesPage() {
       transition={{ duration: 0.35, ease: 'easeOut' }}
       className="space-y-8"
     >
-      <header className="space-y-2">
-        <h1 className="text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl">Despesas</h1>
-        <p className="max-w-2xl text-sm text-slate-500 sm:text-base">
-          Revise despesas fixas e variáveis, confirme dados extraídos e acompanhe pagamentos.
-        </p>
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="space-y-2">
+          <h1 className="text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl">Despesas</h1>
+          <p className="max-w-2xl text-sm text-slate-500 sm:text-base">
+            Revise despesas fixas e variáveis, confirme dados extraídos e acompanhe pagamentos.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={openCreateModal}
+          className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900"
+        >
+          <PlusCircle className="h-4 w-4" /> Nova despesa
+        </button>
       </header>
 
-      <motion.form
-        onSubmit={handleSubmit}
-        className="space-y-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.35, ease: 'easeOut' }}
-      >
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-semibold text-slate-900 sm:text-xl">
-              {editingId ? 'Editar despesa' : 'Adicionar despesa'}
-            </h2>
-            <p className="text-xs text-slate-500">
-              {editingId ? 'Atualize os dados da despesa selecionada.' : 'Registe manualmente uma nova despesa.'}
-            </p>
-          </div>
-          {editingId && (
-            <button
-              type="button"
-              onClick={resetForm}
-              className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-500 transition hover:border-slate-300 hover:text-slate-900"
-            >
-              <XCircle className="h-4 w-4" />
-              Cancelar edição
-            </button>
-          )}
-        </div>
-
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          <label className="block space-y-2 text-sm text-slate-600">
-            <span className="text-xs uppercase tracking-wide text-slate-400">Conta</span>
-            <select
-              value={formState.accountId}
-              onChange={(event) => setFormState((prev) => ({ ...prev, accountId: event.target.value }))}
-              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10"
-            >
-              <option value="">Selecionar conta…</option>
-              {accounts.map((account) => (
-                <option key={account.id} value={account.id}>
-                  {account.name}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="block space-y-2 text-sm text-slate-600">
-            <span className="text-xs uppercase tracking-wide text-slate-400">Descrição</span>
-            <input
-              type="text"
-              value={formState.description}
-              onChange={(event) => setFormState((prev) => ({ ...prev, description: event.target.value }))}
-              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-900 focus:ring-slate-900/10"
-            />
-          </label>
-
-          <label className="block space-y-2 text-sm text-slate-600">
-            <span className="text-xs uppercase tracking-wide text-slate-400">Categoria</span>
-            <input
-              type="text"
-              value={formState.category}
-              onChange={(event) => setFormState((prev) => ({ ...prev, category: event.target.value }))}
-              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-900 focus:ring-slate-900/10"
-            />
-          </label>
-
-          <label className="block space-y-2 text-sm text-slate-600">
-            <span className="text-xs uppercase tracking-wide text-slate-400">Valor</span>
-            <input
-              type="number"
-              step="0.01"
-              value={formState.amount}
-              onChange={(event) => setFormState((prev) => ({ ...prev, amount: event.target.value }))}
-              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-900 focus:ring-slate-900/10"
-            />
-          </label>
-
-          <label className="block space-y-2 text-sm text-slate-600">
-            <span className="text-xs uppercase tracking-wide text-slate-400">Moeda</span>
-            <input
-              type="text"
-              value={formState.currency}
-              onChange={(event) => setFormState((prev) => ({ ...prev, currency: event.target.value.toUpperCase() }))}
-              maxLength={3}
-              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm uppercase text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-900 focus:ring-slate-900/10"
-            />
-          </label>
-
-          <label className="block space-y-2 text-sm text-slate-600">
-            <span className="text-xs uppercase tracking-wide text-slate-400">Data de vencimento</span>
-            <input
-              type="date"
-              value={formState.dueDate}
-              onChange={(event) => setFormState((prev) => ({ ...prev, dueDate: event.target.value }))}
-              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10"
-            />
-          </label>
-
-          <label className="block space-y-2 text-sm text-slate-600">
-            <span className="text-xs uppercase tracking-wide text-slate-400">Recorrência</span>
-            <select
-              value={formState.recurrence}
-              onChange={(event) =>
-                setFormState((prev) => ({
-                  ...prev,
-                  recurrence: event.target.value as Expense['recurrence'] | ''
-                }))
-              }
-              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10"
-            >
-              <option value="">Sem recorrência</option>
-              <option value="mensal">Mensal</option>
-              <option value="semestral">Semestral</option>
-              <option value="anual">Anual</option>
-              <option value="pontual">Pontual</option>
-            </select>
-          </label>
-
-          <label className="block space-y-2 text-sm text-slate-600">
-            <span className="text-xs uppercase tracking-wide text-slate-400">Estado</span>
-            <select
-              value={formState.status}
-              onChange={(event) =>
-                setFormState((prev) => ({ ...prev, status: event.target.value as Expense['status'] }))
-              }
-              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10"
-            >
-              <option value="planeado">Planeado</option>
-              <option value="pago">Pago</option>
-              <option value="em-analise">Em análise</option>
-            </select>
-          </label>
-
-          <label className="block space-y-2 text-sm text-slate-600">
-            <span className="text-xs uppercase tracking-wide text-slate-400">Fornecedor</span>
-            <select
-              value={formState.supplierId}
-              onChange={(event) => setFormState((prev) => ({ ...prev, supplierId: event.target.value }))}
-              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10"
-            >
-              <option value="">Sem fornecedor</option>
-              {suppliers.map((supplier) => (
-                <option key={supplier.id} value={supplier.id}>
-                  {supplier.name}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="block space-y-2 text-sm text-slate-600">
-            <span className="text-xs uppercase tracking-wide text-slate-400">Documento associado</span>
-            <input
-              type="text"
-              value={formState.documentId}
-              onChange={(event) => setFormState((prev) => ({ ...prev, documentId: event.target.value }))}
-              placeholder="ID do documento (opcional)"
-              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-900 focus:ring-slate-900/10"
-            />
-          </label>
-
-          <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-600">
-            <input
-              type="checkbox"
-              checked={formState.fixed}
-              onChange={(event) => setFormState((prev) => ({ ...prev, fixed: event.target.checked }))}
-              className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900/10"
-            />
-            Despesa fixa
-          </label>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="submit"
-            disabled={isSaving}
-            className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900 disabled:opacity-60"
+      <AnimatePresence>
+        {!isModalOpen && (feedback || error) && (
+          <motion.p
+            key={(feedback ?? error) as string}
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            className={`rounded-2xl border px-4 py-3 text-sm shadow-sm ${
+              error ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+            }`}
           >
-            <Save className="h-4 w-4" />
-            {isSaving ? 'A guardar…' : editingId ? 'Guardar alterações' : 'Criar despesa'}
-          </button>
-          {editingId && (
+            {error ?? feedback}
+          </motion.p>
+        )}
+      </AnimatePresence>
+
+      <Modal
+        open={isModalOpen}
+        onClose={closeModal}
+        title={editingId ? 'Editar despesa' : 'Nova despesa'}
+        description={
+          editingId
+            ? 'Atualize os dados da despesa seleccionada e sincronize com o Firebase.'
+            : 'Registe manualmente uma nova despesa e associe às contas e fornecedores.'
+        }
+      >
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="block space-y-2 text-sm text-slate-600">
+              <span className="text-xs uppercase tracking-wide text-slate-400">Conta</span>
+              <select
+                value={formState.accountId}
+                onChange={(event) => setFormState((prev) => ({ ...prev, accountId: event.target.value }))}
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10"
+              >
+                <option value="">Selecionar conta…</option>
+                {accounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="block space-y-2 text-sm text-slate-600">
+              <span className="text-xs uppercase tracking-wide text-slate-400">Descrição</span>
+              <input
+                type="text"
+                value={formState.description}
+                onChange={(event) => setFormState((prev) => ({ ...prev, description: event.target.value }))}
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-900 focus:ring-slate-900/10"
+              />
+            </label>
+
+            <label className="block space-y-2 text-sm text-slate-600">
+              <span className="text-xs uppercase tracking-wide text-slate-400">Categoria</span>
+              <input
+                type="text"
+                value={formState.category}
+                onChange={(event) => setFormState((prev) => ({ ...prev, category: event.target.value }))}
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-900 focus:ring-slate-900/10"
+              />
+            </label>
+
+            <label className="block space-y-2 text-sm text-slate-600">
+              <span className="text-xs uppercase tracking-wide text-slate-400">Valor</span>
+              <input
+                type="number"
+                step="0.01"
+                value={formState.amount}
+                onChange={(event) => setFormState((prev) => ({ ...prev, amount: event.target.value }))}
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-900 focus:ring-slate-900/10"
+              />
+            </label>
+
+            <label className="block space-y-2 text-sm text-slate-600">
+              <span className="text-xs uppercase tracking-wide text-slate-400">Moeda</span>
+              <input
+                type="text"
+                value={formState.currency}
+                onChange={(event) => setFormState((prev) => ({ ...prev, currency: event.target.value.toUpperCase() }))}
+                maxLength={3}
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm uppercase text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-900 focus:ring-slate-900/10"
+              />
+            </label>
+
+            <label className="block space-y-2 text-sm text-slate-600">
+              <span className="text-xs uppercase tracking-wide text-slate-400">Data de vencimento</span>
+              <input
+                type="date"
+                value={formState.dueDate}
+                onChange={(event) => setFormState((prev) => ({ ...prev, dueDate: event.target.value }))}
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10"
+              />
+            </label>
+
+            <label className="block space-y-2 text-sm text-slate-600">
+              <span className="text-xs uppercase tracking-wide text-slate-400">Recorrência</span>
+              <select
+                value={formState.recurrence}
+                onChange={(event) =>
+                  setFormState((prev) => ({
+                    ...prev,
+                    recurrence: event.target.value as Expense['recurrence'] | ''
+                  }))
+                }
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10"
+              >
+                <option value="">Sem recorrência</option>
+                <option value="mensal">Mensal</option>
+                <option value="semestral">Semestral</option>
+                <option value="anual">Anual</option>
+                <option value="pontual">Pontual</option>
+              </select>
+            </label>
+
+            <label className="block space-y-2 text-sm text-slate-600">
+              <span className="text-xs uppercase tracking-wide text-slate-400">Estado</span>
+              <select
+                value={formState.status}
+                onChange={(event) =>
+                  setFormState((prev) => ({ ...prev, status: event.target.value as Expense['status'] }))
+                }
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10"
+              >
+                <option value="planeado">Planeado</option>
+                <option value="pago">Pago</option>
+                <option value="em-analise">Em análise</option>
+              </select>
+            </label>
+
+            <label className="block space-y-2 text-sm text-slate-600">
+              <span className="text-xs uppercase tracking-wide text-slate-400">Fornecedor</span>
+              <select
+                value={formState.supplierId}
+                onChange={(event) => setFormState((prev) => ({ ...prev, supplierId: event.target.value }))}
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10"
+              >
+                <option value="">Sem fornecedor</option>
+                {suppliers.map((supplier) => (
+                  <option key={supplier.id} value={supplier.id}>
+                    {supplier.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="block space-y-2 text-sm text-slate-600 md:col-span-2">
+              <span className="text-xs uppercase tracking-wide text-slate-400">Documento associado</span>
+              <input
+                type="text"
+                value={formState.documentId}
+                onChange={(event) => setFormState((prev) => ({ ...prev, documentId: event.target.value }))}
+                placeholder="ID do documento (opcional)"
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-900 focus:ring-slate-900/10"
+              />
+            </label>
+
+            <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-600 md:col-span-2">
+              <input
+                type="checkbox"
+                checked={formState.fixed}
+                onChange={(event) => setFormState((prev) => ({ ...prev, fixed: event.target.checked }))}
+                className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900/10"
+              />
+              Despesa fixa
+            </label>
+          </div>
+
+          <AnimatePresence>
+            {error && (
+              <motion.p
+                key={error}
+                initial={{ opacity: 0, y: -6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 shadow-sm"
+              >
+                {error}
+              </motion.p>
+            )}
+          </AnimatePresence>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="submit"
+              disabled={isSaving}
+              className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900 disabled:opacity-60"
+            >
+              <Save className="h-4 w-4" />
+              {isSaving ? 'A guardar…' : editingId ? 'Guardar alterações' : 'Criar despesa'}
+            </button>
             <button
               type="button"
-              onClick={() => handleDelete(editingId)}
-              disabled={deletingId === editingId}
-              className="inline-flex items-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700 shadow-sm transition hover:border-rose-300 hover:bg-rose-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 disabled:opacity-60"
+              onClick={closeModal}
+              className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-600 shadow-sm transition hover:border-slate-400 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900"
             >
-              <Trash2 className="h-4 w-4" />
-              {deletingId === editingId ? 'A remover…' : 'Remover'}
+              <XCircle className="h-4 w-4" /> Cancelar
             </button>
-          )}
-        </div>
-
-        <AnimatePresence>
-          {(error || feedback) && (
-            <motion.p
-              key={(error ?? feedback) as string}
-              initial={{ opacity: 0, y: -6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -6 }}
-              className={`rounded-2xl border px-4 py-3 text-sm shadow-sm ${
-                error
-                  ? 'border-rose-200 bg-rose-50 text-rose-700'
-                  : 'border-emerald-200 bg-emerald-50 text-emerald-700'
-              }`}
-            >
-              {error ?? feedback}
-            </motion.p>
-          )}
-        </AnimatePresence>
-      </motion.form>
+            {editingId && (
+              <button
+                type="button"
+                onClick={() => handleDelete(editingId)}
+                disabled={deletingId === editingId}
+                className="inline-flex items-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700 shadow-sm transition hover:border-rose-300 hover:bg-rose-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 disabled:opacity-60"
+              >
+                <Trash2 className="h-4 w-4" />
+                {deletingId === editingId ? 'A remover…' : 'Remover'}
+              </button>
+            )}
+          </div>
+        </form>
+      </Modal>
 
       <div className="grid gap-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm md:grid-cols-[2fr_1fr] md:items-center">
         <div className="grid gap-4 sm:grid-cols-2">
