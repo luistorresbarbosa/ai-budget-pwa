@@ -147,11 +147,15 @@ export function resolveAccountId(
     return undefined;
   }
   if (!accountHint || accountHint.trim().length === 0) {
-    return undefined;
+    return accounts.length === 1 ? accounts[0].id : undefined;
   }
 
   const matched = findAccountByHint(accountHint, accounts);
-  return matched?.id;
+  if (matched) {
+    return matched.id;
+  }
+
+  return accounts.length === 1 ? accounts[0].id : undefined;
 }
 
 function normaliseIbanLike(value: string): string {
@@ -194,38 +198,71 @@ export function findAccountByHint(
   accounts: Account[]
 ): Account | undefined {
   if (!accountHint || accountHint.trim().length === 0) {
-    return undefined;
+    return accounts.length === 1 ? accounts[0] : undefined;
   }
 
-  // Only consider IBAN-like hints for automatic linking
-  if (!isIbanLike(accountHint)) {
-    return undefined;
+  const attemptIbanMatch = (): Account | undefined => {
+    if (!isIbanLike(accountHint)) {
+      return undefined;
+    }
+
+    const THRESHOLD = 0.75;
+    let best: { account: Account; score: number } | undefined;
+
+    for (const account of accounts) {
+      // Prefer explicit IBAN fields on account and metadata
+      const candidates = new Set<string>();
+      const accRecord = account as Account & Record<string, unknown>;
+      const meta = (accRecord['metadata'] as Record<string, unknown> | undefined) ?? undefined;
+      const pushIfString = (v: unknown) => {
+        if (typeof v === 'string' && v.trim()) candidates.add(v);
+      };
+      pushIfString(accRecord['iban']);
+      pushIfString(meta?.['iban']);
+      pushIfString(meta?.['ibanNumber']);
+
+      for (const candidate of candidates) {
+        const score = ibanSimilarityScore(accountHint, candidate);
+        if (score >= THRESHOLD && (!best || score > best.score)) {
+          best = { account, score };
+        }
+      }
+    }
+
+    return best?.account;
+  };
+
+  const ibanMatch = attemptIbanMatch();
+  if (ibanMatch) {
+    return ibanMatch;
   }
 
-  const THRESHOLD = 0.75;
-  let best: { account: Account; score: number } | undefined;
+  const normalisedHint = normaliseIdentifier(accountHint);
+  if (!normalisedHint) {
+    return accounts.length === 1 ? accounts[0] : undefined;
+  }
 
   for (const account of accounts) {
-    // Prefer explicit IBAN fields on account and metadata
-    const candidates = new Set<string>();
-    const accRecord = account as Account & Record<string, unknown>;
-    const meta = (accRecord['metadata'] as Record<string, unknown> | undefined) ?? undefined;
-    const pushIfString = (v: unknown) => {
-      if (typeof v === 'string' && v.trim()) candidates.add(v);
-    };
-    pushIfString(accRecord['iban']);
-    pushIfString(meta?.['iban']);
-    pushIfString(meta?.['ibanNumber']);
+    const candidates = extractAccountCandidates(account)
+      .map(normaliseIdentifier)
+      .filter((candidate) => candidate.length > 0);
 
-    for (const candidate of candidates) {
-      const score = ibanSimilarityScore(accountHint, candidate);
-      if (score >= THRESHOLD && (!best || score > best.score)) {
-        best = { account, score };
+    const hasMatch = candidates.some((candidate) => {
+      if (candidate === normalisedHint) {
+        return true;
       }
+      if (candidate.length < 4) {
+        return false;
+      }
+      return candidate.includes(normalisedHint) || normalisedHint.includes(candidate);
+    });
+
+    if (hasMatch) {
+      return account;
     }
   }
 
-  return best?.account;
+  return accounts.length === 1 ? accounts[0] : undefined;
 }
 
 function humaniseDocumentName(originalName: string): string {
