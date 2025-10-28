@@ -1,6 +1,6 @@
-# AI Budget PWA
+# Gestor de Despesas PWA
 
-Aplicação web (PWA) para gestão inteligente de despesas pessoais. O projecto está configurado com [Vite](https://vitejs.dev/),
+Aplicação web (PWA) para gestão de despesas pessoais. O projecto está configurado com [Vite](https://vitejs.dev/),
 React e TypeScript, incluindo mock data, estado global via Zustand e uma estrutura inicial para as principais áreas da app:
 
 - Upload de PDFs com extração de metadados via OpenAI (com fallback local sem dependências externas).

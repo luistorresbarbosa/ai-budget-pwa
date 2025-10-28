@@ -1,11 +1,11 @@
 {
-  "name": "AI Budget",
-  "short_name": "AI Budget",
+  "name": "Gestor de Despesas",
+  "short_name": "Despesas",
   "start_url": ".",
   "display": "standalone",
   "background_color": "#f8fafc",
   "theme_color": "#0f172a",
-  "description": "Gestão inteligente de despesas pessoais com apoio AI.",
+  "description": "Gestão prática de despesas pessoais e transferências.",
   "icons": [
     {
       "src": "https://cdn.jsdelivr.net/npm/lucide-static@0.360.0/icons/wallet.svg",

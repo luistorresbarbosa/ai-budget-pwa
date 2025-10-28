@@ -10,9 +10,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg'],
       manifest: {
-        name: 'AI Budget',
-        short_name: 'AI Budget',
-        description: 'Gestão inteligente de despesas pessoais com apoio AI.',
+        name: 'Gestor de Despesas',
+        short_name: 'Despesas',
+        description: 'Gestão prática de despesas pessoais e transferências.',
         theme_color: '#0f172a',
         background_color: '#f8fafc',
         display: 'standalone',
