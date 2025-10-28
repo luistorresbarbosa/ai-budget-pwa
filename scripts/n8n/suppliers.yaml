@@ -1,0 +1,12 @@
+suppliers:
+  - name: Northwind
+    tag: supplier/northwind
+    email: billing@northwind.com
+  - name: Contoso
+    tag: supplier/contoso
+    email: ap@contoso.com
+  - name: Globex
+    tag: supplier/globex
+    email: finance@globex.example
+
+# Add more suppliers below using the same structure.

@@ -1,0 +1,530 @@
+{
+  "name": "Daily Gmail Invoice Orchestration",
+  "nodes": [
+    {
+      "parameters": {
+        "triggerTimes": [
+          {
+            "hour": 1,
+            "minute": 0
+          }
+        ]
+      },
+      "id": "Cron_Trigger",
+      "name": "Daily Schedule",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [
+        0,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "const suppliers = [\n  { name: 'Northwind', tag: 'supplier/northwind', email: 'billing@northwind.com' },\n  { name: 'Contoso', tag: 'supplier/contoso', email: 'ap@contoso.com' },\n  { name: 'Globex', tag: 'supplier/globex', email: 'finance@globex.example' }\n];\n\nconst queryParts = suppliers.map((supplier) => {\n  const filters = [`label:${supplier.tag}`, `from:${supplier.email}`];\n  return `(${filters.join(' OR ')})`;\n});\n\nconst gmailQuery = `${queryParts.join(' OR ')} has:attachment filename:pdf`;\n\nreturn [\n  {\n    json: {\n      suppliers,\n      gmailQuery,\n      runId: $execution.id\n    }\n  }\n];"
+      },
+      "id": "Function_Build_Query",
+      "name": "Build Supplier Query",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "gmailCredential",
+              "value": "Gmail Account A"
+            },
+            {
+              "name": "gmailAccountLabel",
+              "value": "primary"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "Set_Account_A",
+      "name": "Select Account A",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        460,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "gmailCredential",
+              "value": "Gmail Account B"
+            },
+            {
+              "name": "gmailAccountLabel",
+              "value": "secondary"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "Set_Account_B",
+      "name": "Select Account B",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        460,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "returnAll": true,
+        "additionalFields": {
+          "includeAttachments": true,
+          "format": "resolved"
+        },
+        "query": "={{$json.gmailQuery}}"
+      },
+      "id": "Gmail_A",
+      "name": "Fetch Gmail A",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [
+        880,
+        140
+      ],
+      "credentials": {
+        "gmailOAuth2": "Gmail Account A"
+      }
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "returnAll": true,
+        "additionalFields": {
+          "includeAttachments": true,
+          "format": "resolved"
+        },
+        "query": "={{$json.gmailQuery}}"
+      },
+      "id": "Gmail_B",
+      "name": "Fetch Gmail B",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [
+        880,
+        460
+      ],
+      "credentials": {
+        "gmailOAuth2": "Gmail Account B"
+      }
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "gmailAccount",
+              "value": "primary"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "Set_Gmail_A_Metadata",
+      "name": "Annotate Gmail A",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "gmailAccount",
+              "value": "secondary"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "Set_Gmail_B_Metadata",
+      "name": "Annotate Gmail B",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "append"
+      },
+      "id": "Merge_Accounts",
+      "name": "Merge Accounts",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [
+        960,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "const flattened = [];\nfor (const item of items) {\n  const binaryKeys = Object.keys(item.binary || {});\n  if (!binaryKeys.length) {\n    continue;\n  }\n\n  for (const key of binaryKeys) {\n    const attachment = item.binary[key];\n    if (!attachment || attachment.fileExtension?.toLowerCase() !== 'pdf') {\n      continue;\n    }\n\n    flattened.push({\n      json: {\n        supplierHint: item.json.from?.value?.[0]?.address || null,\n        gmailAccount: item.json.gmailAccount || null,\n        messageId: item.json.id,\n        threadId: item.json.threadId,\n        subject: item.json.subject,\n        historyId: item.json.historyId,\n        runId: item.json.runId || null\n      },\n      binary: {\n        data: attachment\n      }\n    });\n  }\n}\nreturn flattened;"
+      },
+      "id": "Function_Flatten_Attachments",
+      "name": "Flatten Attachments",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1360,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "runId",
+              "value": "={{$json.runId || $execution.id}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "Set_Run_Metadata",
+      "name": "Set Run Metadata",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        1600,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "mergeByIndex"
+      },
+      "id": "Merge_AI_and_Metadata",
+      "name": "Merge AI Response",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [
+        1840,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "const projectId = $env.FIREBASE_PROJECT_ID || 'your-project-id';\nconst collectionPath = `projects/${projectId}/databases/(default)/documents/invoiceHistory`;\n\nfunction toFirestoreValue(value) {\n  if (value === null || value === undefined) {\n    return { nullValue: null };\n  }\n  if (typeof value === 'number') {\n    return { doubleValue: value };\n  }\n  if (typeof value === 'boolean') {\n    return { booleanValue: value };\n  }\n  if (typeof value === 'string') {\n    return { stringValue: value };\n  }\n  if (Array.isArray(value)) {\n    return { arrayValue: { values: value.map((entry) => toFirestoreValue(entry)) } };\n  }\n  if (typeof value === 'object') {\n    return { mapValue: { fields: Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, toFirestoreValue(entry)])) } };\n  }\n  return { stringValue: String(value) };\n}\n\nreturn items.map(item => {\n  const source = item.json || {};\n  const rawOutput = source.output ?? source.aiExtraction ?? null;\n  let parsedOutput = {};\n  if (typeof rawOutput === 'string') {\n    try {\n      parsedOutput = JSON.parse(rawOutput);\n    } catch (error) {\n      parsedOutput = { notes: `Unable to parse AI output: ${error.message}` };\n    }\n  } else if (rawOutput && typeof rawOutput === 'object') {\n    parsedOutput = rawOutput;\n  }\n  const messageId = source.message_id || source.messageId || 'unknown-message';\n  const firestoreEndpoint = `https://firestore.googleapis.com/v1/${collectionPath}?documentId=${encodeURIComponent(messageId)}`;\n  const aiFields = {};\n  if (parsedOutput && typeof parsedOutput === 'object') {\n    for (const [key, value] of Object.entries(parsedOutput)) {\n      if (['firestoreEndpoint','payload','pdfBase64','output'].includes(key)) {\n        continue;\n      }\n      aiFields[key] = toFirestoreValue(value);\n    }\n  }\n  return {\n    json: {\n      firestoreEndpoint,\n      payload: {\n        fields: {\n          messageId: { stringValue: messageId },\n          gmailAccount: { stringValue: source.gmail_account || source.gmailAccount || '' },\n          supplierHint: { stringValue: source.supplier_hint || source.supplierHint || '' },\n          subject: { stringValue: source.subject || '' },\n          runId: { stringValue: source.run_id || source.runId || '' },\n          processedAt: { timestampValue: new Date().toISOString() },\n          aiExtraction: { mapValue: { fields: aiFields } }\n        }\n      }\n    }\n  };\n});"
+      },
+      "id": "Function_Prepare_Firebase",
+      "name": "Prepare Firebase Payload",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        2080,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "={{$json.firestoreEndpoint}}",
+        "jsonParameters": true,
+        "bodyParametersJson": "={{$json.payload}}",
+        "options": {
+          "bodyContentType": "json"
+        },
+        "headerParametersJson": "={\"Authorization\": \"Bearer {{$env.FIREBASE_BEARER_TOKEN}}\"}"
+      },
+      "id": "HTTP_Firebase",
+      "name": "Store in Firebase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [
+        2320,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "binaryToJson",
+        "setAllData": false,
+        "sourceKey": "data",
+        "destinationKey": "pdfBase64",
+        "options": {
+          "keepAsBase64": true,
+          "keepSource": false
+        }
+      },
+      "id": "Move_Binary_To_JSON",
+      "name": "PDF to Base64",
+      "type": "n8n-nodes-base.moveBinaryData",
+      "typeVersion": 1,
+      "position": [
+        1600,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "mode": "id",
+          "value": "={{$env.AI_AGENT_MODEL || 'gpt-4.1-mini'}}"
+        },
+        "options": {
+          "responseFormat": "json_object",
+          "temperature": 0,
+          "maxTokens": 2048
+        }
+      },
+      "id": "OpenAI_Model",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        1600,
+        40
+      ],
+      "credentials": {
+        "openAiApi": "OpenAI Account"
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "You are an expert accounts payable analyst. You receive Gmail metadata and a base64-encoded PDF invoice. Decode the PDF, extract reliable invoice details, and respond ONLY with a JSON object that matches this schema:\n{\n  \\\"messageId\\\": string,\n  \\\"gmailAccount\\\": string,\n  \\\"supplierHint\\\": string|null,\n  \\\"supplierName\\\": string|null,\n  \\\"invoiceNumber\\\": string|null,\n  \\\"invoiceDate\\\": string|null,\n  \\\"dueDate\\\": string|null,\n  \\\"currency\\\": string|null,\n  \\\"totalAmount\\\": number|null,\n  \\\"taxAmount\\\": number|null,\n  \\\"lineItems\\\": [\n    { \\\"description\\\": string|null, \\\"quantity\\\": number|null, \\\"unitPrice\\\": number|null, \\\"amount\\\": number|null }\n  ]\n}\nFill missing data with null. Use ISO 8601 dates when possible.\n\nEmail metadata:\n- Message ID: {{$json.messageId}}\n- Gmail Account: {{$json.gmailAccount}}\n- Supplier Hint: {{$json.supplierHint}}\n- Subject: {{$json.subject}}\n- Run ID: {{$json.runId}}\n\nInvoice PDF (base64): {{$json.pdfBase64}}\nIf the PDF cannot be parsed, still respond with the schema and null fields plus an explanatory \\\"notes\\\" string.",
+        "options": {
+          "systemMessage": "You are a meticulous invoice processing agent. Extract fields accurately and avoid hallucinations.",
+          "maxIterations": 8,
+          "returnIntermediateSteps": false,
+          "enableStreaming": false
+        },
+        "needsFallback": false
+      },
+      "id": "AI_Agent_Extract",
+      "name": "Extract Invoice with AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        1840,
+        160
+      ]
+    }
+  ],
+  "connections": {
+    "Daily Schedule": {
+      "main": [
+        [
+          {
+            "node": "Build Supplier Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Supplier Query": {
+      "main": [
+        [
+          {
+            "node": "Select Account A",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Select Account B",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Account A": {
+      "main": [
+        [
+          {
+            "node": "Fetch Gmail A",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Account B": {
+      "main": [
+        [
+          {
+            "node": "Fetch Gmail B",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Gmail A": {
+      "main": [
+        [
+          {
+            "node": "Annotate Gmail A",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Gmail B": {
+      "main": [
+        [
+          {
+            "node": "Annotate Gmail B",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Annotate Gmail A": {
+      "main": [
+        [
+          {
+            "node": "Merge Accounts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Annotate Gmail B": {
+      "main": [
+        [
+          {
+            "node": "Merge Accounts",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Accounts": {
+      "main": [
+        [
+          {
+            "node": "Flatten Attachments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Flatten Attachments": {
+      "main": [
+        [
+          {
+            "node": "Set Run Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Run Metadata": {
+      "main": [
+        [
+          {
+            "node": "PDF to Base64",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge AI Response": {
+      "main": [
+        [
+          {
+            "node": "Prepare Firebase Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Firebase Payload": {
+      "main": [
+        [
+          {
+            "node": "Store in Firebase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PDF to Base64": {
+      "main": [
+        [
+          {
+            "node": "Extract Invoice with AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge AI Response",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Extract Invoice with AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Merge AI Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Extract Invoice with AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "instanceId": ""
+  }
+}
