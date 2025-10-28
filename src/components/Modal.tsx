@@ -35,7 +35,7 @@ export function Modal({ open, onClose, title, description, footer, children }: P
     <AnimatePresence>
       {open && (
         <motion.div
-          className="fixed inset-0 z-50 flex items-center justify-center px-4 py-10 sm:px-6"
+          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto px-4 py-6 sm:items-center sm:px-6 sm:py-10"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -73,7 +73,7 @@ export function Modal({ open, onClose, title, description, footer, children }: P
               />
             </div>
 
-            <div className="relative space-y-6 p-6">
+            <div className="relative max-h-[min(90vh,44rem)] overflow-y-auto space-y-6 p-6 sm:max-h-[80vh]">
               <header className="flex items-start justify-between gap-6">
                 <div className="space-y-1">
                   <h2 id={titleId} className="text-xl font-semibold text-slate-900 sm:text-2xl">
