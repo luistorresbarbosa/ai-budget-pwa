@@ -10,6 +10,8 @@ import {
   DocumentUploadButton,
   type DocumentUploadFeedback
 } from '../components/documents/DocumentUploadButton';
+import MonthlyProjectionChart from '../components/expenses/MonthlyProjectionChart';
+import type { MonthlyProjection } from '../types/expenses';
 
 const statusStyles: Record<Expense['status'], string> = {
   planeado: 'border-amber-200 bg-amber-50 text-amber-700',
@@ -58,13 +60,6 @@ const EMPTY_FORM: ExpenseFormState = {
   supplierId: '',
   documentId: ''
 };
-
-interface MonthlyProjection {
-  key: string;
-  label: string;
-  totals: Record<string, number>;
-  totalAmount: number;
-}
 
 type ToastState = DocumentUploadFeedback | null;
 
@@ -463,9 +458,9 @@ function ExpensesPage() {
     }, {});
   }, [monthlyProjections]);
 
-  const maxProjectionAmount = useMemo(() => {
-    return monthlyProjections.reduce((max, month) => Math.max(max, month.totalAmount), 0);
-  }, [monthlyProjections]);
+  const currencyOrder = useMemo(() => {
+    return Object.keys(projectionTotalsByCurrency).sort();
+  }, [projectionTotalsByCurrency]);
 
   const projectionTotalsSummary = useMemo(() => {
     const entries = Object.entries(projectionTotalsByCurrency);
@@ -476,6 +471,33 @@ function ExpensesPage() {
       .map(([currency, amount]) => formatCurrency(amount, currency))
       .join(' · ');
   }, [projectionTotalsByCurrency]);
+
+  const highestProjection = useMemo(() => {
+    if (monthlyProjections.length === 0) {
+      return null;
+    }
+    return monthlyProjections.reduce((acc, item) => {
+      return item.totalAmount > acc.totalAmount ? item : acc;
+    }, monthlyProjections[0]);
+  }, [monthlyProjections]);
+
+  const monthlyAverageByCurrency = useMemo(() => {
+    if (monthlyProjections.length === 0) {
+      return {} as Record<string, number>;
+    }
+    return currencyOrder.reduce<Record<string, number>>((acc, currency) => {
+      acc[currency] =
+        (projectionTotalsByCurrency[currency] ?? 0) / monthlyProjections.length;
+      return acc;
+    }, {});
+  }, [currencyOrder, projectionTotalsByCurrency, monthlyProjections]);
+
+  const nextProjectionMonth = monthlyProjections[0] ?? null;
+
+  const formatProjectionTotals = (projection: MonthlyProjection) =>
+    Object.entries(projection.totals)
+      .map(([currency, amount]) => formatCurrency(amount, currency))
+      .join(' · ');
 
   const filtered = useMemo(
     () =>
@@ -547,42 +569,62 @@ function ExpensesPage() {
             </span>
           </div>
 
-          <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {monthlyProjections.map((month) => {
-              const ratio =
-                maxProjectionAmount > 0 ? month.totalAmount / maxProjectionAmount : 0;
-              const heightPercentage =
-                ratio > 0 ? Math.max(Math.min(ratio * 100, 100), 12) : 0;
+          <div className="mt-6 grid gap-6 lg:grid-cols-[2fr_1fr]">
+            <MonthlyProjectionChart
+              data={monthlyProjections}
+              currencyOrder={currencyOrder}
+              formatCurrency={formatCurrency}
+            />
 
-              return (
-                <div
-                  key={month.key}
-                  className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-sm"
-                >
-                  <div className="flex items-baseline justify-between">
-                    <span className="text-sm font-semibold uppercase tracking-wide text-slate-900">
-                      {month.label}
-                    </span>
-                    <span className="text-xs text-slate-500">Previsto</span>
-                  </div>
-                  <div className="relative h-36 overflow-hidden rounded-2xl bg-white">
-                    <div className="absolute bottom-0 left-0 right-0 px-3 pb-3">
-                      <div
-                        className="w-full rounded-2xl bg-gradient-to-t from-slate-900 via-slate-800 to-slate-600 shadow-lg"
-                        style={{ height: `${heightPercentage}%` }}
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-1 text-sm text-slate-600">
-                    {Object.entries(month.totals).map(([currency, amount]) => (
-                      <p key={currency} className="font-medium text-slate-700">
-                        {formatCurrency(amount, currency)}
+            <aside className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Insights rápidos
+                </h3>
+                <div className="mt-3 space-y-3 text-sm text-slate-600">
+                  {nextProjectionMonth && (
+                    <div>
+                      <p className="font-medium text-slate-900">Próximo mês previsto</p>
+                      <p className="text-xs uppercase tracking-wide text-slate-400">
+                        {nextProjectionMonth.label}
                       </p>
-                    ))}
-                  </div>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {formatProjectionTotals(nextProjectionMonth)}
+                      </p>
+                    </div>
+                  )}
+                  {highestProjection && (
+                    <div>
+                      <p className="font-medium text-slate-900">Mês com maior impacto</p>
+                      <p className="text-xs uppercase tracking-wide text-slate-400">
+                        {highestProjection.label}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {formatProjectionTotals(highestProjection)}
+                      </p>
+                    </div>
+                  )}
                 </div>
-              );
-            })}
+              </div>
+
+              {currencyOrder.length > 0 && (
+                <div>
+                  <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Média mensal por moeda
+                  </h4>
+                  <ul className="mt-3 space-y-2 text-sm text-slate-600">
+                    {currencyOrder.map((currency) => (
+                      <li key={currency} className="flex items-center justify-between">
+                        <span>{currency}</span>
+                        <span className="font-medium text-slate-900">
+                          {formatCurrency(monthlyAverageByCurrency[currency] ?? 0, currency)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </aside>
           </div>
         </section>
       ) : (
