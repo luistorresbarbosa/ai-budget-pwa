@@ -8,13 +8,13 @@
   "description": "Gestão prática de despesas pessoais e transferências.",
   "icons": [
     {
-      "src": "https://cdn.jsdelivr.net/npm/lucide-static@0.360.0/icons/wallet.svg",
+      "src": "/icons/wallet.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any"
     },
     {
-      "src": "https://cdn.jsdelivr.net/npm/lucide-static@0.360.0/icons/piggy-bank.svg",
+      "src": "/icons/wallet-maskable.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "maskable"

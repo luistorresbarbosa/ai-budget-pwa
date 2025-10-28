@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Ícone PWA minimalista de carteira">
+  <defs>
+    <linearGradient id="bg" x1="96" y1="72" x2="440" y2="440" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#111827" />
+      <stop offset="1" stop-color="#1d4ed8" />
+    </linearGradient>
+    <linearGradient id="wallet" x1="144" y1="188" x2="420" y2="384" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8b5cf6" />
+      <stop offset="1" stop-color="#6366f1" />
+    </linearGradient>
+    <linearGradient id="flap" x1="176" y1="148" x2="392" y2="292" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#d6ccff" />
+      <stop offset="1" stop-color="#818cf8" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="124" fill="url(#bg)" />
+  <g transform="translate(52 68)">
+    <rect x="68" y="144" width="360" height="228" rx="96" fill="url(#wallet)" />
+    <path d="M104 134h244a96 96 0 0 1 96 96v24H200a96 96 0 0 1-96-96v-24Z" fill="url(#flap)" />
+    <path d="M352 232h92a50 50 0 0 1 50 50v26a50 50 0 0 1-50 50h-92a50 50 0 0 1-50-50v-26a50 50 0 0 1 50-50Z" fill="#111827" />
+    <circle cx="400" cy="286" r="20" fill="#f8fafc" />
+  </g>
+</svg>

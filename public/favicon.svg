@@ -1,6 +1,23 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Gestor de Despesas icon">
-  <rect width="128" height="128" rx="28" fill="#0f172a" />
-  <path d="M32 64c0-17.673 14.327-32 32-32s32 14.327 32 32-14.327 32-32 32" fill="none" stroke="#38bdf8" stroke-width="10" stroke-linecap="round" />
-  <path d="M52 64h20" stroke="#f8fafc" stroke-width="10" stroke-linecap="round" />
-  <path d="M64 52v24" stroke="#f8fafc" stroke-width="10" stroke-linecap="round" />
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Ícone minimalista de carteira">
+  <defs>
+    <linearGradient id="bg" x1="24" y1="16" x2="116" y2="120" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#111827" />
+      <stop offset="1" stop-color="#1d4ed8" />
+    </linearGradient>
+    <linearGradient id="wallet" x1="36" y1="44" x2="110" y2="102" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8b5cf6" />
+      <stop offset="1" stop-color="#6366f1" />
+    </linearGradient>
+    <linearGradient id="flap" x1="42" y1="34" x2="106" y2="74" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#d6ccff" />
+      <stop offset="1" stop-color="#818cf8" />
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="28" fill="url(#bg)" />
+  <g transform="translate(12 16)">
+    <rect x="18" y="32" width="84" height="56" rx="20" fill="url(#wallet)" />
+    <path d="M28 30h56a20 20 0 0 1 20 20v8H48a20 20 0 0 1-20-20v-8Z" fill="url(#flap)" />
+    <path d="M90 58h18a12 12 0 0 1 12 12v6a12 12 0 0 1-12 12H90a12 12 0 0 1-12-12v-6a12 12 0 0 1 12-12Z" fill="#111827" />
+    <circle cx="96" cy="71" r="4" fill="#f8fafc" />
+  </g>
 </svg>
