@@ -90,8 +90,8 @@ export function AppLayout({ children }: PropsWithChildren) {
             <ReceiptText className="h-5 w-5" />
           </span>
           <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-slate-400">AI-powered</p>
-            <span className="text-xl font-semibold">AI Budget</span>
+            <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Gestão de despesas</p>
+            <span className="text-xl font-semibold">Gestor de Despesas</span>
           </div>
         </div>
         <nav className="flex-1 space-y-6">
@@ -114,7 +114,7 @@ export function AppLayout({ children }: PropsWithChildren) {
             <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-900 text-white">
               <ReceiptText className="h-5 w-5" />
             </span>
-            <span>AI Budget</span>
+            <span>Gestor de Despesas</span>
           </div>
           <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-500">
             PWA

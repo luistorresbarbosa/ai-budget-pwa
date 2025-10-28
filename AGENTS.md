@@ -1,4 +1,4 @@
-# AI Budget App — Regras e Requisitos
+# Gestor de Despesas — Regras e Requisitos
 
 ## Resumo
 Quero construir uma PWA WEB app para gerir as minhas despesas e transferências entre as minhas contas.
