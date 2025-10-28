@@ -53,6 +53,29 @@ interface EnsureSupplierResult {
   updated: boolean;
 }
 
+function extractContactEmails(metadata: Supplier['metadata'] | undefined): string[] {
+  if (!metadata) {
+    return [];
+  }
+
+  const deduplicated = new Set<string>();
+  const pushEmail = (value: unknown) => {
+    if (typeof value !== 'string') {
+      return;
+    }
+    const trimmed = value.trim().toLowerCase();
+    if (!trimmed) {
+      return;
+    }
+    deduplicated.add(trimmed);
+  };
+
+  metadata.contactEmails?.forEach(pushEmail);
+  pushEmail((metadata as { contactEmail?: unknown }).contactEmail);
+
+  return Array.from(deduplicated.values());
+}
+
 interface ExpenseUpsertResult {
   expenses: Expense[];
   expense?: Expense;
@@ -288,11 +311,23 @@ function mergeSupplierMetadata(
     ...existing?.metadata,
     taxId: document.supplierTaxId ?? existing?.metadata?.taxId,
     accountHints: accountHints.size > 0 ? Array.from(accountHints) : existing?.metadata?.accountHints,
-    contactEmail: existing?.metadata?.contactEmail,
     notes: existing?.metadata?.notes
   };
 
-  if (!metadata.taxId && !metadata.accountHints && !metadata.notes && !metadata.contactEmail) {
+  const existingEmails = extractContactEmails(existing?.metadata);
+  if (existingEmails.length > 0) {
+    metadata.contactEmails = existingEmails;
+  } else {
+    delete metadata.contactEmails;
+  }
+  delete (metadata as { contactEmail?: unknown }).contactEmail;
+
+  if (
+    !metadata.taxId &&
+    (!metadata.accountHints || metadata.accountHints.length === 0) &&
+    !metadata.notes &&
+    (!metadata.contactEmails || metadata.contactEmails.length === 0)
+  ) {
     return existing?.metadata;
   }
 

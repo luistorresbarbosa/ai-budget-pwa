@@ -26,7 +26,7 @@ export interface Account {
 export interface SupplierMetadata {
   taxId?: string;
   accountHints?: string[];
-  contactEmail?: string;
+  contactEmails?: string[];
   notes?: string;
 }
 
