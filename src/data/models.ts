@@ -53,6 +53,9 @@ export interface Expense {
   supplierId?: string;
   paidAt?: string;
   deduplicationKey?: string;
+  recurringExpenseId?: string;
+  recurrenceStartDate?: string;
+  recurrenceEndDate?: string;
 }
 
 export interface Transfer {

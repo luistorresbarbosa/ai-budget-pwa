@@ -2,24 +2,14 @@ import { NavLink, useLocation } from 'react-router-dom';
 import type { PropsWithChildren } from 'react';
 import { motion } from 'framer-motion';
 import type { LucideIcon } from 'lucide-react';
-import {
-  Building2,
-  CalendarDays,
-  Files,
-  ReceiptText,
-  RefreshCcw,
-  Settings,
-  Wallet2,
-  PiggyBank
-} from 'lucide-react';
+import { Building2, CalendarDays, ReceiptText, RefreshCcw, Settings, Wallet2, PiggyBank } from 'lucide-react';
 
 const links: Array<{ to: string; label: string; icon: LucideIcon }> = [
-  { to: '/documents', label: 'Documentos', icon: Files },
-  { to: '/accounts', label: 'Contas', icon: PiggyBank },
-  { to: '/suppliers', label: 'Fornecedores', icon: Building2 },
+  { to: '/expenses', label: 'Despesas', icon: Wallet2 },
   { to: '/transfers', label: 'Transferências', icon: RefreshCcw },
   { to: '/timeline', label: 'Timeline', icon: CalendarDays },
-  { to: '/expenses', label: 'Despesas', icon: Wallet2 },
+  { to: '/accounts', label: 'Contas', icon: PiggyBank },
+  { to: '/suppliers', label: 'Fornecedores', icon: Building2 },
   { to: '/settings', label: 'Definições', icon: Settings }
 ];
 

@@ -6,6 +6,10 @@ import type { Expense } from '../data/models';
 import { validateFirebaseConfig } from '../services/firebase';
 import { persistExpense, removeExpenseMetadata } from '../services/expenses';
 import { Modal } from '../components/Modal';
+import {
+  DocumentUploadButton,
+  type DocumentUploadFeedback
+} from '../components/documents/DocumentUploadButton';
 
 const statusStyles: Record<Expense['status'], string> = {
   planeado: 'border-amber-200 bg-amber-50 text-amber-700',
@@ -14,7 +18,7 @@ const statusStyles: Record<Expense['status'], string> = {
 };
 
 const statusLabels: Record<Expense['status'], string> = {
-  planeado: 'Planeado',
+  planeado: 'Pendente',
   pago: 'Pago',
   'em-analise': 'Em análise'
 };
@@ -30,10 +34,13 @@ interface ExpenseFormState {
   currency: string;
   dueDate: string;
   recurrence: Expense['recurrence'] | '';
+  recurrenceEndDate: string;
+  recurrenceStartDate: string;
   fixed: boolean;
   status: Expense['status'];
   supplierId: string;
   documentId: string;
+  recurringExpenseId?: string;
 }
 
 const EMPTY_FORM: ExpenseFormState = {
@@ -44,10 +51,80 @@ const EMPTY_FORM: ExpenseFormState = {
   currency: 'EUR',
   dueDate: '',
   recurrence: '',
+  recurrenceEndDate: '',
+  recurrenceStartDate: '',
   fixed: false,
   status: 'planeado',
   supplierId: '',
   documentId: ''
+};
+
+interface MonthlyProjection {
+  key: string;
+  label: string;
+  totals: Record<string, number>;
+  totalAmount: number;
+}
+
+type ToastState = DocumentUploadFeedback | null;
+
+function parseDateOnly(value: string): Date | null {
+  if (!value) {
+    return null;
+  }
+  const [yearString, monthString, dayString] = value.split('-');
+  const year = Number.parseInt(yearString ?? '', 10);
+  const month = Number.parseInt(monthString ?? '', 10);
+  const day = Number.parseInt(dayString ?? '', 10);
+  if (Number.isNaN(year) || Number.isNaN(month) || Number.isNaN(day)) {
+    return null;
+  }
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+function toIsoDate(value: string): string | null {
+  const parsed = parseDateOnly(value);
+  return parsed ? parsed.toISOString() : null;
+}
+
+function generateMonthlyOccurrences(start: Date, end: Date): Date[] {
+  const occurrences: Date[] = [];
+  if (end < start) {
+    return occurrences;
+  }
+
+  const startDay = start.getUTCDate();
+  let current = new Date(start);
+
+  while (current.getTime() <= end.getTime()) {
+    occurrences.push(new Date(current));
+    const baseYear = current.getUTCFullYear();
+    const baseMonth = current.getUTCMonth();
+    const nextMonthStart = new Date(Date.UTC(baseYear, baseMonth + 1, 1));
+    const daysInNextMonth = new Date(
+      Date.UTC(nextMonthStart.getUTCFullYear(), nextMonthStart.getUTCMonth() + 1, 0)
+    ).getUTCDate();
+    const day = Math.min(startDay, daysInNextMonth);
+    current = new Date(
+      Date.UTC(nextMonthStart.getUTCFullYear(), nextMonthStart.getUTCMonth(), day)
+    );
+  }
+
+  return occurrences;
+}
+
+function formatCurrency(amount: number, currency: string): string {
+  return new Intl.NumberFormat('pt-PT', {
+    style: 'currency',
+    currency,
+    maximumFractionDigits: 2
+  }).format(amount);
+}
+
+const toastStyles: Record<DocumentUploadFeedback['type'], string> = {
+  success: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+  error: 'border-rose-200 bg-rose-50 text-rose-700',
+  info: 'border-slate-200 bg-slate-50 text-slate-600'
 };
 
 function ExpensesPage() {
@@ -64,11 +141,20 @@ function ExpensesPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [feedback, setFeedback] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [toast, setToast] = useState<ToastState>(null);
+  const [formError, setFormError] = useState<string | null>(null);
   const [accountFilter, setAccountFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('todas');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const requiresRecurrenceWindow =
+    formState.recurrence !== '' && formState.recurrence !== 'pontual';
+  const dueDateLabel = requiresRecurrenceWindow
+    ? 'Data inicial da recorrência'
+    : 'Data de vencimento';
+
+  const handleUploadFeedback = (feedback: DocumentUploadFeedback) => {
+    setToast(feedback);
+  };
 
   useEffect(() => {
     if (!editingId) {
@@ -91,13 +177,20 @@ function ExpensesPage() {
       currency: expense.currency,
       dueDate: expense.dueDate.substring(0, 10),
       recurrence: expense.recurrence ?? '',
+      recurrenceEndDate: expense.recurrenceEndDate
+        ? expense.recurrenceEndDate.substring(0, 10)
+        : '',
+      recurrenceStartDate: expense.recurrenceStartDate
+        ? expense.recurrenceStartDate.substring(0, 10)
+        : '',
       fixed: expense.fixed,
       status: expense.status,
       supplierId: expense.supplierId ?? '',
-      documentId: expense.documentId ?? ''
+      documentId: expense.documentId ?? '',
+      recurringExpenseId: expense.recurringExpenseId
     });
     setIsModalOpen(true);
-    setError(null);
+    setFormError(null);
   };
 
   const resetForm = () => {
@@ -110,84 +203,169 @@ function ExpensesPage() {
 
   const openCreateModal = () => {
     resetForm();
-    setError(null);
+    setFormError(null);
+    setToast(null);
     setIsModalOpen(true);
   };
 
   const closeModal = () => {
     setIsModalOpen(false);
-    setError(null);
+    setFormError(null);
+    setToast(null);
     setDeletingId(null);
     resetForm();
   };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setFeedback(null);
-    setError(null);
+    setToast(null);
+    setFormError(null);
 
     const config = settings.firebaseConfig;
     if (!config || !validateFirebaseConfig(config)) {
-      setError('Configure o Firebase nas definições antes de gerir despesas.');
+      setFormError('Configure o Firebase nas definições antes de gerir despesas.');
       return;
     }
 
     if (!formState.accountId) {
-      setError('Selecione a conta associada.');
+      setFormError('Selecione a conta associada.');
       return;
     }
 
     const trimmedDescription = formState.description.trim();
     if (!trimmedDescription) {
-      setError('Indique uma descrição para a despesa.');
+      setFormError('Indique uma descrição para a despesa.');
       return;
     }
 
     const trimmedCategory = formState.category.trim();
     if (!trimmedCategory) {
-      setError('Indique uma categoria.');
+      setFormError('Indique uma categoria.');
       return;
     }
 
     if (!formState.dueDate) {
-      setError('Indique a data de vencimento.');
+      setFormError('Indique a data de vencimento.');
       return;
     }
 
     const parsedAmount = Number.parseFloat(formState.amount.replace(',', '.'));
     if (!Number.isFinite(parsedAmount)) {
-      setError('Valor da despesa inválido.');
+      setFormError('Valor da despesa inválido.');
       return;
     }
 
     const currency = formState.currency.trim().toUpperCase() || 'EUR';
-    const dueDateIso = new Date(formState.dueDate).toISOString();
+    const startDate = parseDateOnly(formState.dueDate);
+    if (!startDate) {
+      setFormError('Data de vencimento inválida.');
+      return;
+    }
 
-    const expense: Expense = {
-      id: formState.id ?? `exp-${crypto.randomUUID()}`,
+    const endDate = formState.recurrenceEndDate ? parseDateOnly(formState.recurrenceEndDate) : null;
+    const recurrenceStartIsoInput = formState.recurrenceStartDate
+      ? toIsoDate(formState.recurrenceStartDate) ?? undefined
+      : undefined;
+    const recurrenceEndIsoString = endDate ? endDate.toISOString() : undefined;
+    const requiresWindow = Boolean(formState.recurrence && formState.recurrence !== 'pontual');
+
+    if (requiresWindow && !endDate) {
+      setFormError('Indique a data final da recorrência.');
+      return;
+    }
+
+    if (requiresWindow && endDate && endDate < startDate) {
+      setFormError('A data final deve ser posterior à data inicial.');
+      return;
+    }
+
+    const baseExpenseData: Pick<
+      Expense,
+      'accountId' | 'description' | 'category' | 'amount' | 'currency' | 'recurrence' | 'fixed' | 'supplierId' | 'documentId'
+    > = {
       accountId: formState.accountId,
       description: trimmedDescription,
       category: trimmedCategory,
       amount: parsedAmount,
       currency,
-      dueDate: dueDateIso,
       recurrence: formState.recurrence || undefined,
       fixed: formState.fixed,
-      status: formState.status,
       supplierId: formState.supplierId || undefined,
       documentId: formState.documentId || undefined
+    };
+
+    const shouldGenerateSeries = !editingId && requiresWindow && endDate;
+
+    if (shouldGenerateSeries && endDate) {
+      const occurrences = generateMonthlyOccurrences(startDate, endDate);
+      if (occurrences.length === 0) {
+        setFormError('Não existem ocorrências dentro do intervalo indicado.');
+        return;
+      }
+
+      const seriesId = formState.recurringExpenseId ?? `rec-${crypto.randomUUID()}`;
+      const recurrenceStartIso = startDate.toISOString();
+      const recurrenceEndIso = endDate.toISOString();
+
+      setIsSaving(true);
+      try {
+        const expensesToPersist: Expense[] = occurrences.map((occurrence) => ({
+          ...baseExpenseData,
+          id: `exp-${crypto.randomUUID()}`,
+          dueDate: occurrence.toISOString(),
+          status: 'planeado',
+          recurringExpenseId: seriesId,
+          recurrenceStartDate: recurrenceStartIso,
+          recurrenceEndDate: recurrenceEndIso
+        }));
+
+        await Promise.all(expensesToPersist.map((item) => persistExpense(item, config)));
+        expensesToPersist.forEach((item) => addExpense(item));
+        setToast({
+          type: 'success',
+          message: `Foram criadas ${occurrences.length} despesas recorrentes.`
+        });
+        resetForm();
+        setIsModalOpen(false);
+      } catch (submitError) {
+        console.error('Não foi possível guardar a despesa recorrente.', submitError);
+        setFormError(
+          submitError instanceof Error
+            ? submitError.message
+            : 'Não foi possível guardar as despesas recorrentes. Tente novamente.'
+        );
+      } finally {
+        setIsSaving(false);
+      }
+      return;
+    }
+
+    const recurrenceStartIso =
+      recurrenceStartIsoInput ?? (requiresWindow ? startDate.toISOString() : undefined);
+
+    const expense: Expense = {
+      id: formState.id ?? `exp-${crypto.randomUUID()}`,
+      ...baseExpenseData,
+      dueDate: startDate.toISOString(),
+      status: formState.status,
+      recurringExpenseId: formState.recurringExpenseId,
+      recurrenceStartDate: recurrenceStartIso,
+      recurrenceEndDate: recurrenceEndIsoString
     };
 
     setIsSaving(true);
     try {
       await persistExpense(expense, config);
       addExpense(expense);
-      setFeedback(editingId ? 'Despesa atualizada com sucesso.' : 'Despesa criada com sucesso.');
+      setToast({
+        type: 'success',
+        message: editingId ? 'Despesa atualizada com sucesso.' : 'Despesa criada com sucesso.'
+      });
       resetForm();
       setIsModalOpen(false);
     } catch (submitError) {
       console.error('Não foi possível guardar a despesa.', submitError);
-      setError(
+      setFormError(
         submitError instanceof Error
           ? submitError.message
           : 'Não foi possível guardar a despesa. Tente novamente.'
@@ -200,12 +378,12 @@ function ExpensesPage() {
   const handleDelete = async (expenseId: string) => {
     const config = settings.firebaseConfig;
     if (!config || !validateFirebaseConfig(config)) {
-      setError('Configure o Firebase nas definições antes de gerir despesas.');
+      setFormError('Configure o Firebase nas definições antes de gerir despesas.');
       return;
     }
 
-    setFeedback(null);
-    setError(null);
+    setToast(null);
+    setFormError(null);
     setDeletingId(expenseId);
 
     try {
@@ -215,10 +393,10 @@ function ExpensesPage() {
         resetForm();
         setIsModalOpen(false);
       }
-      setFeedback('Despesa removida.');
+      setToast({ type: 'success', message: 'Despesa removida.' });
     } catch (deleteError) {
       console.error('Não foi possível remover a despesa.', deleteError);
-      setError(
+      setFormError(
         deleteError instanceof Error
           ? deleteError.message
           : 'Não foi possível remover a despesa. Tente novamente.'
@@ -237,6 +415,68 @@ function ExpensesPage() {
     [accounts]
   );
 
+  const monthlyProjections = useMemo<MonthlyProjection[]>(() => {
+    if (expenses.length === 0) {
+      return [];
+    }
+
+    const now = new Date();
+    const startOfCurrentMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const accumulator = new Map<string, { label: string; totals: Record<string, number> }>();
+
+    expenses.forEach((expense) => {
+      if (expense.status === 'pago') {
+        return;
+      }
+      const due = new Date(expense.dueDate);
+      if (Number.isNaN(due.getTime())) {
+        return;
+      }
+      if (due.getTime() < startOfCurrentMonth.getTime()) {
+        return;
+      }
+      const key = `${due.getUTCFullYear()}-${String(due.getUTCMonth() + 1).padStart(2, '0')}`;
+      const label = due.toLocaleDateString('pt-PT', { month: 'short', year: 'numeric' });
+      const existing = accumulator.get(key);
+      const totals = existing?.totals ?? {};
+      totals[expense.currency] = (totals[expense.currency] ?? 0) + expense.amount;
+      accumulator.set(key, { label, totals });
+    });
+
+    return Array.from(accumulator.entries())
+      .map(([key, value]) => ({
+        key,
+        label: value.label,
+        totals: value.totals,
+        totalAmount: Object.values(value.totals).reduce((sum, amount) => sum + amount, 0)
+      }))
+      .sort((a, b) => (a.key < b.key ? -1 : 1))
+      .slice(0, 12);
+  }, [expenses]);
+
+  const projectionTotalsByCurrency = useMemo(() => {
+    return monthlyProjections.reduce<Record<string, number>>((acc, month) => {
+      Object.entries(month.totals).forEach(([currency, amount]) => {
+        acc[currency] = (acc[currency] ?? 0) + amount;
+      });
+      return acc;
+    }, {});
+  }, [monthlyProjections]);
+
+  const maxProjectionAmount = useMemo(() => {
+    return monthlyProjections.reduce((max, month) => Math.max(max, month.totalAmount), 0);
+  }, [monthlyProjections]);
+
+  const projectionTotalsSummary = useMemo(() => {
+    const entries = Object.entries(projectionTotalsByCurrency);
+    if (entries.length === 0) {
+      return 'Sem despesas futuras registadas.';
+    }
+    return entries
+      .map(([currency, amount]) => formatCurrency(amount, currency))
+      .join(' · ');
+  }, [projectionTotalsByCurrency]);
+
   const filtered = useMemo(
     () =>
       expenses.filter((expense) => {
@@ -247,7 +487,7 @@ function ExpensesPage() {
     [expenses, accountFilter, statusFilter]
   );
 
-  const totalPlaneado = filtered
+  const totalPendente = filtered
     .filter((item) => item.status !== 'pago')
     .reduce((sum, expense) => sum + expense.amount, 0);
 
@@ -265,30 +505,92 @@ function ExpensesPage() {
             Revise despesas fixas e variáveis, confirme dados extraídos e acompanhe pagamentos.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={openCreateModal}
-          className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900"
-        >
-          <PlusCircle className="h-4 w-4" /> Nova despesa
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <DocumentUploadButton onFeedback={handleUploadFeedback} />
+          <button
+            type="button"
+            onClick={openCreateModal}
+            className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900"
+          >
+            <PlusCircle className="h-4 w-4" /> Nova despesa
+          </button>
+        </div>
       </header>
 
       <AnimatePresence>
-        {!isModalOpen && (feedback || error) && (
+        {!isModalOpen && toast && (
           <motion.p
-            key={(feedback ?? error) as string}
+            key={`${toast.type}-${toast.message}`}
             initial={{ opacity: 0, y: -6 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -6 }}
-            className={`rounded-2xl border px-4 py-3 text-sm shadow-sm ${
-              error ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'
-            }`}
+            className={`rounded-2xl border px-4 py-3 text-sm shadow-sm ${toastStyles[toast.type]}`}
           >
-            {error ?? feedback}
+            {toast.message}
           </motion.p>
         )}
       </AnimatePresence>
+
+      {monthlyProjections.length > 0 ? (
+        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-1">
+              <h2 className="text-xl font-semibold text-slate-900">
+                Projeção de despesas futuras
+              </h2>
+              <p className="text-sm text-slate-500">
+                Totais previstos por mês para despesas ainda pendentes.
+              </p>
+            </div>
+            <span className="inline-flex items-center rounded-2xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm">
+              {projectionTotalsSummary}
+            </span>
+          </div>
+
+          <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {monthlyProjections.map((month) => {
+              const ratio =
+                maxProjectionAmount > 0 ? month.totalAmount / maxProjectionAmount : 0;
+              const heightPercentage =
+                ratio > 0 ? Math.max(Math.min(ratio * 100, 100), 12) : 0;
+
+              return (
+                <div
+                  key={month.key}
+                  className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-sm"
+                >
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-sm font-semibold uppercase tracking-wide text-slate-900">
+                      {month.label}
+                    </span>
+                    <span className="text-xs text-slate-500">Previsto</span>
+                  </div>
+                  <div className="relative h-36 overflow-hidden rounded-2xl bg-white">
+                    <div className="absolute bottom-0 left-0 right-0 px-3 pb-3">
+                      <div
+                        className="w-full rounded-2xl bg-gradient-to-t from-slate-900 via-slate-800 to-slate-600 shadow-lg"
+                        style={{ height: `${heightPercentage}%` }}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1 text-sm text-slate-600">
+                    {Object.entries(month.totals).map(([currency, amount]) => (
+                      <p key={currency} className="font-medium text-slate-700">
+                        {formatCurrency(amount, currency)}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      ) : (
+        <section className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-6 text-sm text-slate-500">
+          Ainda não existem despesas futuras planeadas. Registe novas despesas ou carregue documentos
+          para começar a projetar os próximos meses.
+        </section>
+      )}
 
       <Modal
         open={isModalOpen}
@@ -361,7 +663,7 @@ function ExpensesPage() {
             </label>
 
             <label className="block space-y-2 text-sm text-slate-600">
-              <span className="text-xs uppercase tracking-wide text-slate-400">Data de vencimento</span>
+              <span className="text-xs uppercase tracking-wide text-slate-400">{dueDateLabel}</span>
               <input
                 type="date"
                 value={formState.dueDate}
@@ -370,6 +672,22 @@ function ExpensesPage() {
               />
             </label>
 
+            {requiresRecurrenceWindow && (
+              <label className="block space-y-2 text-sm text-slate-600">
+                <span className="text-xs uppercase tracking-wide text-slate-400">
+                  Data final da recorrência
+                </span>
+                <input
+                  type="date"
+                  value={formState.recurrenceEndDate}
+                  onChange={(event) =>
+                    setFormState((prev) => ({ ...prev, recurrenceEndDate: event.target.value }))
+                  }
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10"
+                />
+              </label>
+            )}
+
             <label className="block space-y-2 text-sm text-slate-600">
               <span className="text-xs uppercase tracking-wide text-slate-400">Recorrência</span>
               <select
@@ -377,7 +695,15 @@ function ExpensesPage() {
                 onChange={(event) =>
                   setFormState((prev) => ({
                     ...prev,
-                    recurrence: event.target.value as Expense['recurrence'] | ''
+                    recurrence: event.target.value as Expense['recurrence'] | '',
+                    recurrenceEndDate:
+                      event.target.value && event.target.value !== 'pontual'
+                        ? prev.recurrenceEndDate
+                        : '',
+                    recurrenceStartDate:
+                      event.target.value && event.target.value !== 'pontual'
+                        ? prev.recurrenceStartDate
+                        : ''
                   }))
                 }
                 className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10"
@@ -399,7 +725,7 @@ function ExpensesPage() {
                 }
                 className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10"
               >
-                <option value="planeado">Planeado</option>
+                <option value="planeado">Pendente</option>
                 <option value="pago">Pago</option>
                 <option value="em-analise">Em análise</option>
               </select>
@@ -444,15 +770,15 @@ function ExpensesPage() {
           </div>
 
           <AnimatePresence>
-            {error && (
+            {formError && (
               <motion.p
-                key={error}
+                key={formError}
                 initial={{ opacity: 0, y: -6 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -6 }}
                 className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 shadow-sm"
               >
-                {error}
+                {formError}
               </motion.p>
             )}
           </AnimatePresence>
@@ -513,7 +839,7 @@ function ExpensesPage() {
               className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10"
             >
               <option value="todas">Todas</option>
-              <option value="planeado">Planeado</option>
+              <option value="planeado">Pendente</option>
               <option value="pago">Pago</option>
               <option value="em-analise">Em análise</option>
             </select>
@@ -522,7 +848,7 @@ function ExpensesPage() {
         <div className="rounded-2xl border border-slate-900 bg-slate-900 p-4 text-white shadow-sm">
           <span className="block text-xs uppercase tracking-wider text-slate-200">Total pendente</span>
           <strong className="mt-1 block text-2xl font-semibold">
-            {totalPlaneado.toFixed(2)} EUR
+            {totalPendente.toFixed(2)} EUR
           </strong>
         </div>
       </div>
@@ -576,6 +902,12 @@ function ExpensesPage() {
                     {expense.recurrence}
                   </span>
                 )}
+                {expense.recurrenceEndDate && (
+                  <span className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs uppercase tracking-wide text-slate-500">
+                    <CalendarDays className="h-4 w-4 text-slate-400" />
+                    Até {new Date(expense.recurrenceEndDate).toLocaleDateString('pt-PT')}
+                  </span>
+                )}
               </div>
             </motion.li>
           ))}
@@ -614,6 +946,11 @@ function ExpensesPage() {
                       {expense.recurrence && (
                         <small className="text-xs uppercase tracking-wide text-slate-400">
                           Recorrência: {expense.recurrence}
+                        </small>
+                      )}
+                      {expense.recurrenceEndDate && (
+                        <small className="block text-xs uppercase tracking-wide text-slate-400">
+                          Até {new Date(expense.recurrenceEndDate).toLocaleDateString('pt-PT')}
                         </small>
                       )}
                     </td>

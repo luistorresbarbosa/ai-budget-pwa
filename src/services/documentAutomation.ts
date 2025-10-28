@@ -311,7 +311,10 @@ function hasExpenseChanged(existingExpense: Expense | undefined, nextExpense: Ex
     existingExpense.dueDate !== nextExpense.dueDate ||
     existingExpense.recurrence !== nextExpense.recurrence ||
     existingExpense.fixed !== nextExpense.fixed ||
-    existingExpense.status !== nextExpense.status
+    existingExpense.status !== nextExpense.status ||
+    existingExpense.recurringExpenseId !== nextExpense.recurringExpenseId ||
+    existingExpense.recurrenceStartDate !== nextExpense.recurrenceStartDate ||
+    existingExpense.recurrenceEndDate !== nextExpense.recurrenceEndDate
   );
 }
 

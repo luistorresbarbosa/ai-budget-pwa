@@ -19,7 +19,7 @@ function App() {
   return (
     <AppLayout>
       <Routes>
-        <Route path="/" element={<Navigate to="/documents" replace />} />
+        <Route path="/" element={<Navigate to="/expenses" replace />} />
         <Route path="/documents" element={<DocumentsPage />} />
         <Route path="/accounts" element={<AccountsPage />} />
         <Route path="/suppliers" element={<SuppliersPage />} />
