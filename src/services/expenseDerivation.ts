@@ -302,6 +302,10 @@ export function deriveExpenseFromDocument(
     existingExpense?.id ??
     (deduplicationKey ? buildExpenseIdFromDeduplicationKey('exp', deduplicationKey) : `doc-exp-${metadata.id}`);
 
+  const isFixed = existingExpense?.type
+    ? existingExpense.type === 'fixa'
+    : existingExpense?.fixed ?? true;
+
   const expense: Expense = {
     id: expenseId,
     documentId: metadata.id,
@@ -313,7 +317,8 @@ export function deriveExpenseFromDocument(
     currency: metadata.currency ?? existingExpense?.currency ?? 'EUR',
     dueDate: resolvedDueDate,
     recurrence: existingExpense?.recurrence,
-    fixed: existingExpense?.fixed ?? true,
+    fixed: isFixed,
+    type: existingExpense?.type ?? (isFixed ? 'fixa' : 'variavel'),
     status: existingExpense?.status ?? 'planeado',
     supplierId: supplierIdOverride ?? metadata.supplierId ?? existingExpense?.supplierId,
     deduplicationKey: deduplicationKey ?? existingExpense?.deduplicationKey
