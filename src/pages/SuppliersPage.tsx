@@ -9,6 +9,7 @@ import {
   Save,
   ShieldCheck,
   Trash2,
+  X,
   XCircle
 } from 'lucide-react';
 import { useAppState } from '../state/AppStateContext';
@@ -21,7 +22,8 @@ interface SupplierFormState {
   id?: string;
   name: string;
   taxId: string;
-  contactEmail: string;
+  contactEmails: string[];
+  contactEmailInput: string;
   notes: string;
   referenceToId?: string;
 }
@@ -29,10 +31,50 @@ interface SupplierFormState {
 const EMPTY_FORM: SupplierFormState = {
   name: '',
   taxId: '',
-  contactEmail: '',
+  contactEmails: [],
+  contactEmailInput: '',
   notes: '',
   referenceToId: undefined
 };
+
+const EMAIL_SEPARATOR = /[,;\n\r\s]+/;
+
+function normaliseEmail(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function parseEmailInput(value: string): string[] {
+  return value
+    .split(EMAIL_SEPARATOR)
+    .map(normaliseEmail)
+    .filter(Boolean);
+}
+
+function getSupplierContactEmails(supplier: Supplier | undefined): string[] {
+  if (!supplier?.metadata) {
+    return [];
+  }
+
+  const deduplicated = new Set<string>();
+  supplier.metadata.contactEmails?.forEach((email) => {
+    if (typeof email === 'string') {
+      const normalised = normaliseEmail(email);
+      if (normalised) {
+        deduplicated.add(normalised);
+      }
+    }
+  });
+
+  const legacy = (supplier.metadata as { contactEmail?: unknown }).contactEmail;
+  if (typeof legacy === 'string') {
+    const normalised = normaliseEmail(legacy);
+    if (normalised) {
+      deduplicated.add(normalised);
+    }
+  }
+
+  return Array.from(deduplicated.values());
+}
 
 // Alias handling removed: suppliers can be marked as references to canonical suppliers
 
@@ -104,7 +146,8 @@ export default function SuppliersPage() {
       id: supplier.id,
       name: supplier.name,
       taxId: supplier.metadata?.taxId ?? '',
-      contactEmail: supplier.metadata?.contactEmail ?? '',
+      contactEmails: getSupplierContactEmails(supplier),
+      contactEmailInput: '',
       notes: supplier.metadata?.notes ?? '',
       referenceToId: supplier.referenceToId
     });
@@ -130,6 +173,43 @@ export default function SuppliersPage() {
     resetForm();
   };
 
+  const handleRemoveContactEmail = (email: string) => {
+    setFormState((state) => ({
+      ...state,
+      contactEmails: state.contactEmails.filter((existing) => existing !== email)
+    }));
+  };
+
+  const handleAddContactEmails = (rawValue: string) => {
+    const trimmedValue = rawValue.trim();
+    setFormState((state) => {
+      const incoming = parseEmailInput(rawValue);
+      if (incoming.length === 0) {
+        return {
+          ...state,
+          contactEmailInput: trimmedValue
+        };
+      }
+
+      const existing = new Set(state.contactEmails);
+      const next = [...state.contactEmails];
+      let hasChanges = false;
+      incoming.forEach((email) => {
+        if (!existing.has(email)) {
+          existing.add(email);
+          next.push(email);
+          hasChanges = true;
+        }
+      });
+
+      return {
+        ...state,
+        contactEmails: hasChanges ? next : state.contactEmails,
+        contactEmailInput: hasChanges ? '' : trimmedValue
+      };
+    });
+  };
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setFeedback(null);
@@ -148,24 +228,26 @@ export default function SuppliersPage() {
     }
 
     const trimmedTaxId = formState.taxId.trim();
-    const trimmedContactEmail = formState.contactEmail.trim();
     const trimmedNotes = formState.notes.trim();
     const previousSupplier = editingId ? suppliers.find((item) => item.id === editingId) : undefined;
+    const contactEmails = formState.contactEmails.map(normaliseEmail).filter(Boolean);
 
     const metadata: Supplier['metadata'] | undefined = (() => {
       const base: Supplier['metadata'] = {
         ...previousSupplier?.metadata,
         taxId: trimmedTaxId || previousSupplier?.metadata?.taxId,
-        contactEmail: trimmedContactEmail || previousSupplier?.metadata?.contactEmail,
         notes: trimmedNotes || previousSupplier?.metadata?.notes,
         accountHints: previousSupplier?.metadata?.accountHints
       };
 
+      if (contactEmails.length > 0) {
+        base.contactEmails = Array.from(new Set(contactEmails));
+      } else {
+        delete base.contactEmails;
+      }
+
       if (!base.taxId) {
         delete base.taxId;
-      }
-      if (!base.contactEmail) {
-        delete base.contactEmail;
       }
       if (!base.notes) {
         delete base.notes;
@@ -173,6 +255,8 @@ export default function SuppliersPage() {
       if (!base.accountHints || base.accountHints.length === 0) {
         delete base.accountHints;
       }
+
+      delete (base as { contactEmail?: unknown }).contactEmail;
 
       return Object.keys(base).length > 0 ? base : undefined;
     })();
@@ -326,16 +410,63 @@ export default function SuppliersPage() {
                 placeholder="NIF / VAT"
               />
             </label>
-            <label className="block space-y-2 text-sm text-slate-600">
-              <span className="text-xs uppercase tracking-wide text-slate-400">Email de contacto</span>
-              <input
-                value={formState.contactEmail}
-                onChange={(event) => setFormState((state) => ({ ...state, contactEmail: event.target.value }))}
-                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10"
-                placeholder="financeiro@empresa.pt"
-                type="email"
-              />
-            </label>
+            <div className="space-y-2 text-sm text-slate-600">
+              <span className="text-xs uppercase tracking-wide text-slate-400">Emails de contacto</span>
+              <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+                {formState.contactEmails.length > 0 && (
+                  <ul className="mb-2 flex flex-wrap gap-2">
+                    {formState.contactEmails.map((email) => (
+                      <li
+                        key={email}
+                        className="flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1 text-[11px] uppercase tracking-wide text-slate-600"
+                      >
+                        <span>{email}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveContactEmail(email)}
+                          className="inline-flex items-center justify-center rounded-full text-slate-500 transition hover:text-slate-900"
+                          aria-label={`Remover ${email}`}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <div className="flex items-center gap-2">
+                  <input
+                    value={formState.contactEmailInput}
+                    onChange={(event) => setFormState((state) => ({ ...state, contactEmailInput: event.target.value }))}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ',') {
+                        const value = (event.target as HTMLInputElement).value;
+                        if (value.trim()) {
+                          event.preventDefault();
+                          handleAddContactEmails(value);
+                        }
+                      }
+                    }}
+                    onBlur={(event) => {
+                      const value = event.target.value;
+                      if (!value.trim()) {
+                        return;
+                      }
+                      handleAddContactEmails(value);
+                    }}
+                    className="flex-1 rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-900 focus:border-slate-900 focus:outline-none focus:ring-1 focus:ring-slate-900/10"
+                    placeholder="financeiro@empresa.pt"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleAddContactEmails(formState.contactEmailInput)}
+                    className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-100 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600 transition hover:border-slate-300 hover:text-slate-900"
+                  >
+                    Adicionar
+                  </button>
+                </div>
+                <p className="mt-2 text-[11px] text-slate-400">Separe múltiplos emails com vírgulas, espaços ou quebras de linha.</p>
+              </div>
+            </div>
             <label className="block space-y-2 text-sm text-slate-600">
               <span className="text-xs uppercase tracking-wide text-slate-400">Notas internas</span>
               <input
@@ -456,13 +587,21 @@ export default function SuppliersPage() {
                         <ShieldCheck className="h-3.5 w-3.5" /> {supplier.metadata.taxId}
                       </p>
                     )}
-                    {supplier.metadata?.contactEmail && (
-                      <p className="flex items-center gap-2 text-xs text-slate-500">
-                        <Mail className="h-3.5 w-3.5" />
-                        <a href={`mailto:${supplier.metadata.contactEmail}`} className="text-slate-600 hover:text-slate-900">
-                          {supplier.metadata.contactEmail}
-                        </a>
-                      </p>
+                    {getSupplierContactEmails(supplier).length > 0 && (
+                      <div className="flex items-start gap-2 text-xs text-slate-500">
+                        <Mail className="mt-0.5 h-3.5 w-3.5" />
+                        <div className="flex flex-wrap gap-1">
+                          {getSupplierContactEmails(supplier).map((email) => (
+                            <a
+                              key={email}
+                              href={`mailto:${email}`}
+                              className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] uppercase tracking-wide text-slate-600 transition hover:bg-slate-200 hover:text-slate-900"
+                            >
+                              {email}
+                            </a>
+                          ))}
+                        </div>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -503,16 +642,21 @@ export default function SuppliersPage() {
                                 <ShieldCheck className="h-3 w-3" /> {reference.metadata.taxId}
                               </p>
                             )}
-                            {reference.metadata?.contactEmail && (
-                              <p className="flex items-center gap-1 text-[10px] text-slate-500">
-                                <Mail className="h-3 w-3" />
-                                <a
-                                  href={`mailto:${reference.metadata.contactEmail}`}
-                                  className="text-slate-600 hover:text-slate-900"
-                                >
-                                  {reference.metadata.contactEmail}
-                                </a>
-                              </p>
+                            {getSupplierContactEmails(reference).length > 0 && (
+                              <div className="flex items-start gap-1 text-[10px] text-slate-500">
+                                <Mail className="mt-0.5 h-3 w-3" />
+                                <div className="flex flex-wrap gap-1">
+                                  {getSupplierContactEmails(reference).map((email) => (
+                                    <a
+                                      key={email}
+                                      href={`mailto:${email}`}
+                                      className="rounded-full bg-slate-100 px-2 py-0.5 uppercase tracking-wide text-slate-600 transition hover:bg-slate-200 hover:text-slate-900"
+                                    >
+                                      {email}
+                                    </a>
+                                  ))}
+                                </div>
+                              </div>
                             )}
                           </div>
                         <div className="flex items-center gap-2">
