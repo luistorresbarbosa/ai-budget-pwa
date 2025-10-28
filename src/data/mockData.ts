@@ -82,7 +82,8 @@ export const mockSuppliers: Supplier[] = [
     id: 'sup-1',
     name: 'Energia Lisboa',
     metadata: {
-      accountHints: ['PT50-1234']
+      accountHints: ['PT50-1234'],
+      contactEmail: 'faturacao@energialisboa.pt'
     }
   },
   {

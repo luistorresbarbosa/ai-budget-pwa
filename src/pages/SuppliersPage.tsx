@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import {
   Building2,
   Link2,
+  Mail,
   NotepadText,
   PlusCircle,
   Save,
@@ -20,6 +21,7 @@ interface SupplierFormState {
   id?: string;
   name: string;
   taxId: string;
+  contactEmail: string;
   notes: string;
   referenceToId?: string;
 }
@@ -27,6 +29,7 @@ interface SupplierFormState {
 const EMPTY_FORM: SupplierFormState = {
   name: '',
   taxId: '',
+  contactEmail: '',
   notes: '',
   referenceToId: undefined
 };
@@ -101,6 +104,7 @@ export default function SuppliersPage() {
       id: supplier.id,
       name: supplier.name,
       taxId: supplier.metadata?.taxId ?? '',
+      contactEmail: supplier.metadata?.contactEmail ?? '',
       notes: supplier.metadata?.notes ?? '',
       referenceToId: supplier.referenceToId
     });
@@ -144,6 +148,7 @@ export default function SuppliersPage() {
     }
 
     const trimmedTaxId = formState.taxId.trim();
+    const trimmedContactEmail = formState.contactEmail.trim();
     const trimmedNotes = formState.notes.trim();
     const previousSupplier = editingId ? suppliers.find((item) => item.id === editingId) : undefined;
 
@@ -151,12 +156,16 @@ export default function SuppliersPage() {
       const base: Supplier['metadata'] = {
         ...previousSupplier?.metadata,
         taxId: trimmedTaxId || previousSupplier?.metadata?.taxId,
+        contactEmail: trimmedContactEmail || previousSupplier?.metadata?.contactEmail,
         notes: trimmedNotes || previousSupplier?.metadata?.notes,
         accountHints: previousSupplier?.metadata?.accountHints
       };
 
       if (!base.taxId) {
         delete base.taxId;
+      }
+      if (!base.contactEmail) {
+        delete base.contactEmail;
       }
       if (!base.notes) {
         delete base.notes;
@@ -318,6 +327,16 @@ export default function SuppliersPage() {
               />
             </label>
             <label className="block space-y-2 text-sm text-slate-600">
+              <span className="text-xs uppercase tracking-wide text-slate-400">Email de contacto</span>
+              <input
+                value={formState.contactEmail}
+                onChange={(event) => setFormState((state) => ({ ...state, contactEmail: event.target.value }))}
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10"
+                placeholder="financeiro@empresa.pt"
+                type="email"
+              />
+            </label>
+            <label className="block space-y-2 text-sm text-slate-600">
               <span className="text-xs uppercase tracking-wide text-slate-400">Notas internas</span>
               <input
                 value={formState.notes}
@@ -437,6 +456,14 @@ export default function SuppliersPage() {
                         <ShieldCheck className="h-3.5 w-3.5" /> {supplier.metadata.taxId}
                       </p>
                     )}
+                    {supplier.metadata?.contactEmail && (
+                      <p className="flex items-center gap-2 text-xs text-slate-500">
+                        <Mail className="h-3.5 w-3.5" />
+                        <a href={`mailto:${supplier.metadata.contactEmail}`} className="text-slate-600 hover:text-slate-900">
+                          {supplier.metadata.contactEmail}
+                        </a>
+                      </p>
+                    )}
                   </div>
                 </div>
                 {isOrphanReference && (
@@ -464,19 +491,30 @@ export default function SuppliersPage() {
                 <div className="rounded-2xl border border-indigo-100 bg-indigo-50/60 px-3 py-2 text-[11px] text-slate-500">
                   <p className="font-semibold uppercase tracking-wide text-indigo-500">Sub-fornecedores</p>
                   <ul className="mt-2 space-y-1">
-                    {references.map((reference) => (
-                      <li
-                        key={reference.id}
-                        className="flex items-center justify-between gap-2 rounded-xl border border-indigo-100 bg-white px-3 py-2 text-[11px]"
-                      >
-                        <div className="space-y-1">
-                          <p className="font-semibold text-slate-700">{reference.name}</p>
-                          {reference.metadata?.taxId && (
-                            <p className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-slate-400">
-                              <ShieldCheck className="h-3 w-3" /> {reference.metadata.taxId}
-                            </p>
-                          )}
-                        </div>
+                      {references.map((reference) => (
+                        <li
+                          key={reference.id}
+                          className="flex items-center justify-between gap-2 rounded-xl border border-indigo-100 bg-white px-3 py-2 text-[11px]"
+                        >
+                          <div className="space-y-1">
+                            <p className="font-semibold text-slate-700">{reference.name}</p>
+                            {reference.metadata?.taxId && (
+                              <p className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-slate-400">
+                                <ShieldCheck className="h-3 w-3" /> {reference.metadata.taxId}
+                              </p>
+                            )}
+                            {reference.metadata?.contactEmail && (
+                              <p className="flex items-center gap-1 text-[10px] text-slate-500">
+                                <Mail className="h-3 w-3" />
+                                <a
+                                  href={`mailto:${reference.metadata.contactEmail}`}
+                                  className="text-slate-600 hover:text-slate-900"
+                                >
+                                  {reference.metadata.contactEmail}
+                                </a>
+                              </p>
+                            )}
+                          </div>
                         <div className="flex items-center gap-2">
                           <button
                             type="button"

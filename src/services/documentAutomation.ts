@@ -288,10 +288,11 @@ function mergeSupplierMetadata(
     ...existing?.metadata,
     taxId: document.supplierTaxId ?? existing?.metadata?.taxId,
     accountHints: accountHints.size > 0 ? Array.from(accountHints) : existing?.metadata?.accountHints,
+    contactEmail: existing?.metadata?.contactEmail,
     notes: existing?.metadata?.notes
   };
 
-  if (!metadata.taxId && !metadata.accountHints && !metadata.notes) {
+  if (!metadata.taxId && !metadata.accountHints && !metadata.notes && !metadata.contactEmail) {
     return existing?.metadata;
   }
 
