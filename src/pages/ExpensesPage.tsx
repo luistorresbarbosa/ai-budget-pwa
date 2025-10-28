@@ -11,6 +11,7 @@ import {
   type DocumentUploadFeedback
 } from '../components/documents/DocumentUploadButton';
 import MonthlyProjectionChart from '../components/expenses/MonthlyProjectionChart';
+import ExpenseTypeDonutChart from '../components/expenses/ExpenseTypeDonutChart';
 import type { MonthlyProjection } from '../types/expenses';
 
 const statusStyles: Record<Expense['status'], string> = {
@@ -27,6 +28,20 @@ const statusLabels: Record<Expense['status'], string> = {
 
 type StatusFilter = 'todas' | Expense['status'];
 
+const typeLabels: Record<Expense['type'], string> = {
+  fixa: 'Despesa fixa',
+  variavel: 'Despesa variável'
+};
+
+const typeStyles: Record<Expense['type'], string> = {
+  fixa: 'border-indigo-200 bg-indigo-50 text-indigo-700',
+  variavel: 'border-emerald-200 bg-emerald-50 text-emerald-700'
+};
+
+function resolveExpenseType(expense: Expense): Expense['type'] {
+  return expense.type ?? (expense.fixed ? 'fixa' : 'variavel');
+}
+
 interface ExpenseFormState {
   id?: string;
   accountId: string;
@@ -39,6 +54,7 @@ interface ExpenseFormState {
   recurrenceEndDate: string;
   recurrenceStartDate: string;
   fixed: boolean;
+  type: Expense['type'];
   status: Expense['status'];
   supplierId: string;
   documentId: string;
@@ -52,10 +68,11 @@ const EMPTY_FORM: ExpenseFormState = {
   amount: '',
   currency: 'EUR',
   dueDate: '',
-  recurrence: '',
+  recurrence: 'pontual',
   recurrenceEndDate: '',
   recurrenceStartDate: '',
   fixed: false,
+  type: 'variavel',
   status: 'planeado',
   supplierId: '',
   documentId: ''
@@ -141,8 +158,9 @@ function ExpensesPage() {
   const [accountFilter, setAccountFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('todas');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const isFixedType = formState.type === 'fixa';
   const requiresRecurrenceWindow =
-    formState.recurrence !== '' && formState.recurrence !== 'pontual';
+    isFixedType && formState.recurrence !== '' && formState.recurrence !== 'pontual';
   const dueDateLabel = requiresRecurrenceWindow
     ? 'Data inicial da recorrência'
     : 'Data de vencimento';
@@ -179,6 +197,7 @@ function ExpensesPage() {
         ? expense.recurrenceStartDate.substring(0, 10)
         : '',
       fixed: expense.fixed,
+      type: expense.type ?? (expense.fixed ? 'fixa' : 'variavel'),
       status: expense.status,
       supplierId: expense.supplierId ?? '',
       documentId: expense.documentId ?? '',
@@ -262,7 +281,7 @@ function ExpensesPage() {
       ? toIsoDate(formState.recurrenceStartDate) ?? undefined
       : undefined;
     const recurrenceEndIsoString = endDate ? endDate.toISOString() : undefined;
-    const requiresWindow = Boolean(formState.recurrence && formState.recurrence !== 'pontual');
+    const requiresWindow = isFixedType && Boolean(formState.recurrence && formState.recurrence !== 'pontual');
 
     if (requiresWindow && !endDate) {
       setFormError('Indique a data final da recorrência.');
@@ -276,7 +295,16 @@ function ExpensesPage() {
 
     const baseExpenseData: Pick<
       Expense,
-      'accountId' | 'description' | 'category' | 'amount' | 'currency' | 'recurrence' | 'fixed' | 'supplierId' | 'documentId'
+      | 'accountId'
+      | 'description'
+      | 'category'
+      | 'amount'
+      | 'currency'
+      | 'recurrence'
+      | 'fixed'
+      | 'type'
+      | 'supplierId'
+      | 'documentId'
     > = {
       accountId: formState.accountId,
       description: trimmedDescription,
@@ -284,7 +312,8 @@ function ExpensesPage() {
       amount: parsedAmount,
       currency,
       recurrence: formState.recurrence || undefined,
-      fixed: formState.fixed,
+      fixed: isFixedType,
+      type: formState.type,
       supplierId: formState.supplierId || undefined,
       documentId: formState.documentId || undefined
     };
@@ -309,6 +338,7 @@ function ExpensesPage() {
           id: `exp-${crypto.randomUUID()}`,
           dueDate: occurrence.toISOString(),
           status: 'planeado',
+          type: 'fixa',
           recurringExpenseId: seriesId,
           recurrenceStartDate: recurrenceStartIso,
           recurrenceEndDate: recurrenceEndIso
@@ -342,6 +372,8 @@ function ExpensesPage() {
       id: formState.id ?? `exp-${crypto.randomUUID()}`,
       ...baseExpenseData,
       dueDate: startDate.toISOString(),
+      fixed: isFixedType,
+      type: formState.type,
       status: formState.status,
       recurringExpenseId: formState.recurringExpenseId,
       recurrenceStartDate: recurrenceStartIso,
@@ -417,7 +449,10 @@ function ExpensesPage() {
 
     const now = new Date();
     const startOfCurrentMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-    const accumulator = new Map<string, { label: string; totals: Record<string, number> }>();
+    const accumulator = new Map<
+      string,
+      { label: string; totals: Record<string, number>; typeTotals: Record<Expense['type'], number> }
+    >();
 
     expenses.forEach((expense) => {
       if (expense.status === 'pago') {
@@ -434,8 +469,11 @@ function ExpensesPage() {
       const label = due.toLocaleDateString('pt-PT', { month: 'short', year: 'numeric' });
       const existing = accumulator.get(key);
       const totals = existing?.totals ?? {};
+      const typeTotals = existing?.typeTotals ?? { fixa: 0, variavel: 0 };
+      const expenseType = resolveExpenseType(expense);
       totals[expense.currency] = (totals[expense.currency] ?? 0) + expense.amount;
-      accumulator.set(key, { label, totals });
+      typeTotals[expenseType] = (typeTotals[expenseType] ?? 0) + expense.amount;
+      accumulator.set(key, { label, totals, typeTotals });
     });
 
     return Array.from(accumulator.entries())
@@ -443,7 +481,8 @@ function ExpensesPage() {
         key,
         label: value.label,
         totals: value.totals,
-        totalAmount: Object.values(value.totals).reduce((sum, amount) => sum + amount, 0)
+        totalAmount: Object.values(value.totals).reduce((sum, amount) => sum + amount, 0),
+        typeTotals: value.typeTotals
       }))
       .sort((a, b) => (a.key < b.key ? -1 : 1))
       .slice(0, 12);
@@ -493,6 +532,103 @@ function ExpensesPage() {
   }, [currencyOrder, projectionTotalsByCurrency, monthlyProjections]);
 
   const nextProjectionMonth = monthlyProjections[0] ?? null;
+
+  const pendingTypeTotals = useMemo(
+    () =>
+      expenses.reduce(
+        (acc, expense) => {
+          if (expense.status === 'pago') {
+            return acc;
+          }
+          const expenseType = resolveExpenseType(expense);
+          acc[expenseType] += expense.amount;
+          return acc;
+        },
+        { fixa: 0, variavel: 0 } as Record<Expense['type'], number>
+      ),
+    [expenses]
+  );
+
+  const { perExpenseInstallments, installmentSummaries } = useMemo(() => {
+    const groups = new Map<string, Expense[]>();
+
+    expenses.forEach((expense) => {
+      const expenseType = resolveExpenseType(expense);
+      if (expenseType !== 'fixa') {
+        return;
+      }
+      const groupKey = expense.recurringExpenseId ?? expense.id;
+      const group = groups.get(groupKey);
+      if (group) {
+        group.push(expense);
+      } else {
+        groups.set(groupKey, [expense]);
+      }
+    });
+
+    const summary: {
+      key: string;
+      description: string;
+      total: number;
+      remaining: number;
+      paid: number;
+      nextDueDate?: string;
+      amount: number;
+      currency: string;
+    }[] = [];
+    const perExpense = new Map<
+      string,
+      { total: number; remaining: number; remainingFromCurrent: number; paid: number }
+    >();
+
+    groups.forEach((groupExpenses, key) => {
+      const sorted = [...groupExpenses].sort(
+        (a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()
+      );
+      const total = sorted.length;
+      const paidCount = sorted.filter((item) => item.status === 'pago').length;
+      const remainingCount = Math.max(total - paidCount, 0);
+      const nextPending = sorted.find((item) => item.status !== 'pago');
+      const reference = nextPending ?? sorted[sorted.length - 1];
+
+      summary.push({
+        key,
+        description: reference?.description ?? 'Despesa fixa',
+        total,
+        remaining: remainingCount,
+        paid: paidCount,
+        nextDueDate: nextPending?.dueDate,
+        amount: reference?.amount ?? 0,
+        currency: reference?.currency ?? 'EUR'
+      });
+
+      let remainingAhead = 0;
+      for (let index = sorted.length - 1; index >= 0; index -= 1) {
+        const item = sorted[index];
+        if (item.status !== 'pago') {
+          remainingAhead += 1;
+        }
+        perExpense.set(item.id, {
+          total,
+          remaining: remainingCount,
+          remainingFromCurrent: remainingAhead,
+          paid: paidCount
+        });
+      }
+    });
+
+    summary.sort((a, b) => b.remaining - a.remaining);
+
+    return {
+      perExpenseInstallments: perExpense,
+      installmentSummaries: summary
+    };
+  }, [expenses]);
+
+  const topInstallmentSummaries = useMemo(
+    () => installmentSummaries.filter((item) => item.remaining > 0 && item.total > 1).slice(0, 3),
+    [installmentSummaries]
+  );
 
   const formatProjectionTotals = (projection: MonthlyProjection) =>
     Object.entries(projection.totals)
@@ -576,55 +712,89 @@ function ExpensesPage() {
               formatCurrency={formatCurrency}
             />
 
-            <aside className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <div>
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Insights rápidos
-                </h3>
-                <div className="mt-3 space-y-3 text-sm text-slate-600">
-                  {nextProjectionMonth && (
-                    <div>
-                      <p className="font-medium text-slate-900">Próximo mês previsto</p>
-                      <p className="text-xs uppercase tracking-wide text-slate-400">
-                        {nextProjectionMonth.label}
-                      </p>
-                      <p className="mt-1 text-xs text-slate-500">
-                        {formatProjectionTotals(nextProjectionMonth)}
-                      </p>
-                    </div>
-                  )}
-                  {highestProjection && (
-                    <div>
-                      <p className="font-medium text-slate-900">Mês com maior impacto</p>
-                      <p className="text-xs uppercase tracking-wide text-slate-400">
-                        {highestProjection.label}
-                      </p>
-                      <p className="mt-1 text-xs text-slate-500">
-                        {formatProjectionTotals(highestProjection)}
-                      </p>
-                    </div>
-                  )}
-                </div>
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <ExpenseTypeDonutChart
+                  fixedTotal={pendingTypeTotals.fixa}
+                  variableTotal={pendingTypeTotals.variavel}
+                  displayCurrency={currencyOrder[0] ?? expenses[0]?.currency ?? 'EUR'}
+                  formatCurrency={formatCurrency}
+                />
               </div>
 
-              {currencyOrder.length > 0 && (
+              <aside className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
                 <div>
-                  <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Média mensal por moeda
-                  </h4>
-                  <ul className="mt-3 space-y-2 text-sm text-slate-600">
-                    {currencyOrder.map((currency) => (
-                      <li key={currency} className="flex items-center justify-between">
-                        <span>{currency}</span>
-                        <span className="font-medium text-slate-900">
-                          {formatCurrency(monthlyAverageByCurrency[currency] ?? 0, currency)}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Insights rápidos
+                  </h3>
+                  <div className="mt-3 space-y-3 text-sm text-slate-600">
+                    {nextProjectionMonth && (
+                      <div>
+                        <p className="font-medium text-slate-900">Próximo mês previsto</p>
+                        <p className="text-xs uppercase tracking-wide text-slate-400">
+                          {nextProjectionMonth.label}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {formatProjectionTotals(nextProjectionMonth)}
+                        </p>
+                      </div>
+                    )}
+                    {highestProjection && (
+                      <div>
+                        <p className="font-medium text-slate-900">Mês com maior impacto</p>
+                        <p className="text-xs uppercase tracking-wide text-slate-400">
+                          {highestProjection.label}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {formatProjectionTotals(highestProjection)}
+                        </p>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              )}
-            </aside>
+
+                {currencyOrder.length > 0 && (
+                  <div>
+                    <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Média mensal por moeda
+                    </h4>
+                    <ul className="mt-3 space-y-2 text-sm text-slate-600">
+                      {currencyOrder.map((currency) => (
+                        <li key={currency} className="flex items-center justify-between">
+                          <span>{currency}</span>
+                          <span className="font-medium text-slate-900">
+                            {formatCurrency(monthlyAverageByCurrency[currency] ?? 0, currency)}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {topInstallmentSummaries.length > 0 && (
+                  <div>
+                    <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Prestações em falta
+                    </h4>
+                    <ul className="mt-3 space-y-3 text-sm text-slate-600">
+                      {topInstallmentSummaries.map((item) => (
+                        <li key={item.key} className="rounded-2xl border border-slate-200 bg-white/80 p-3 shadow-sm">
+                          <p className="font-medium text-slate-900">{item.description}</p>
+                          <p className="text-xs uppercase tracking-wide text-slate-400">
+                            {item.remaining} de {item.total} prestações por liquidar
+                          </p>
+                          {item.nextDueDate && (
+                            <p className="mt-1 text-xs text-slate-500">
+                              Próxima até {new Date(item.nextDueDate).toLocaleDateString('pt-PT')}
+                            </p>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </aside>
+            </div>
           </div>
         </section>
       ) : (
@@ -683,6 +853,28 @@ function ExpensesPage() {
             </label>
 
             <label className="block space-y-2 text-sm text-slate-600">
+              <span className="text-xs uppercase tracking-wide text-slate-400">Tipo de despesa</span>
+              <select
+                value={formState.type}
+                onChange={(event) => {
+                  const nextType = event.target.value as Expense['type'];
+                  setFormState((prev) => ({
+                    ...prev,
+                    type: nextType,
+                    fixed: nextType === 'fixa',
+                    recurrence: nextType === 'fixa' ? prev.recurrence || 'mensal' : 'pontual',
+                    recurrenceEndDate: nextType === 'fixa' ? prev.recurrenceEndDate : '',
+                    recurrenceStartDate: nextType === 'fixa' ? prev.recurrenceStartDate : ''
+                  }));
+                }}
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10"
+              >
+                <option value="variavel">Variável</option>
+                <option value="fixa">Fixa</option>
+              </select>
+            </label>
+
+            <label className="block space-y-2 text-sm text-slate-600">
               <span className="text-xs uppercase tracking-wide text-slate-400">Valor</span>
               <input
                 type="number"
@@ -733,7 +925,8 @@ function ExpensesPage() {
             <label className="block space-y-2 text-sm text-slate-600">
               <span className="text-xs uppercase tracking-wide text-slate-400">Recorrência</span>
               <select
-                value={formState.recurrence}
+                value={isFixedType ? formState.recurrence : 'pontual'}
+                disabled={!isFixedType}
                 onChange={(event) =>
                   setFormState((prev) => ({
                     ...prev,
@@ -748,7 +941,7 @@ function ExpensesPage() {
                         : ''
                   }))
                 }
-                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10"
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-50 disabled:text-slate-400"
               >
                 <option value="">Sem recorrência</option>
                 <option value="mensal">Mensal</option>
@@ -800,15 +993,6 @@ function ExpensesPage() {
               />
             </label>
 
-            <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-600 md:col-span-2">
-              <input
-                type="checkbox"
-                checked={formState.fixed}
-                onChange={(event) => setFormState((prev) => ({ ...prev, fixed: event.target.checked }))}
-                className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900/10"
-              />
-              Despesa fixa
-            </label>
           </div>
 
           <AnimatePresence>
@@ -896,63 +1080,83 @@ function ExpensesPage() {
       </div>
 
       <div className="space-y-4">
+
         <motion.ul layout className="grid gap-3 md:hidden">
-          {filtered.map((expense) => (
-            <motion.li
-              key={expense.id}
-              layout
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
-            >
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold text-slate-900">{expense.description}</p>
-                  <small className="text-xs uppercase tracking-wide text-slate-400">
-                    {accountById[expense.accountId] ?? 'Conta desconhecida'} · {expense.category}
-                  </small>
+          {filtered.map((expense) => {
+            const expenseType = resolveExpenseType(expense);
+            const installmentInfo = perExpenseInstallments.get(expense.id);
+            const installmentsLabel =
+              expenseType === 'fixa'
+                ? installmentInfo
+                  ? `Faltam ${installmentInfo.remainingFromCurrent} de ${installmentInfo.total}`
+                  : 'Fixa'
+                : 'Pontual';
+
+            return (
+              <motion.li
+                key={expense.id}
+                layout
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900">{expense.description}</p>
+                    <small className="text-xs uppercase tracking-wide text-slate-400">
+                      {accountById[expense.accountId] ?? 'Conta desconhecida'} · {expense.category}
+                    </small>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span
+                      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-wide ${typeStyles[expenseType]}`}
+                    >
+                      {typeLabels[expenseType]}
+                    </span>
+                    <span
+                      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-wide ${statusStyles[expense.status]}`}
+                    >
+                      <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                      {statusLabels[expense.status]}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleEdit(expense)}
+                      className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-500 transition hover:border-slate-300 hover:text-slate-900"
+                    >
+                      <Pencil className="h-4 w-4" />
+                      Editar
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span
-                    className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-wide ${statusStyles[expense.status]}`}
-                  >
-                    <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                    {statusLabels[expense.status]}
+                <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-slate-600">
+                  <span className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
+                    <Euro className="h-4 w-4 text-slate-400" />
+                    {expense.amount.toFixed(2)} {expense.currency}
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => handleEdit(expense)}
-                    className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-500 transition hover:border-slate-300 hover:text-slate-900"
-                  >
-                    <Pencil className="h-4 w-4" />
-                    Editar
-                  </button>
-                </div>
-              </div>
-              <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-slate-600">
-                <span className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
-                  <Euro className="h-4 w-4 text-slate-400" />
-                  {expense.amount.toFixed(2)} {expense.currency}
-                </span>
-                <span className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
-                  <CalendarDays className="h-4 w-4 text-slate-400" />
-                  {new Date(expense.dueDate).toLocaleDateString('pt-PT')}
-                </span>
-                {expense.recurrence && (
-                  <span className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs uppercase tracking-wide text-slate-500">
-                    <RefreshCcw className="h-4 w-4 text-slate-400" />
-                    {expense.recurrence}
-                  </span>
-                )}
-                {expense.recurrenceEndDate && (
-                  <span className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs uppercase tracking-wide text-slate-500">
+                  <span className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
                     <CalendarDays className="h-4 w-4 text-slate-400" />
-                    Até {new Date(expense.recurrenceEndDate).toLocaleDateString('pt-PT')}
+                    {new Date(expense.dueDate).toLocaleDateString('pt-PT')}
                   </span>
-                )}
-              </div>
-            </motion.li>
-          ))}
+                  {expense.recurrence && (
+                    <span className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs uppercase tracking-wide text-slate-500">
+                      <RefreshCcw className="h-4 w-4 text-slate-400" />
+                      {expense.recurrence}
+                    </span>
+                  )}
+                  {expense.recurrenceEndDate && (
+                    <span className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs uppercase tracking-wide text-slate-500">
+                      <CalendarDays className="h-4 w-4 text-slate-400" />
+                      Até {new Date(expense.recurrenceEndDate).toLocaleDateString('pt-PT')}
+                    </span>
+                  )}
+                  <span className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs uppercase tracking-wide text-slate-500">
+                    {installmentsLabel}
+                  </span>
+                </div>
+              </motion.li>
+            );
+          })}
           {filtered.length === 0 && (
             <li className="rounded-2xl border border-dashed border-slate-200 bg-white/70 p-6 text-center text-sm text-slate-500">
               Nenhuma despesa encontrada para os filtros seleccionados.
@@ -964,73 +1168,94 @@ function ExpensesPage() {
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-slate-200 text-left text-sm text-slate-600">
               <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
-                <tr>
-                  <th className="px-6 py-4 font-semibold">Descrição</th>
-                  <th className="px-6 py-4 font-semibold">Conta</th>
-                  <th className="px-6 py-4 font-semibold">Categoria</th>
-                  <th className="px-6 py-4 font-semibold">Valor</th>
-                  <th className="px-6 py-4 font-semibold">Vencimento</th>
-                  <th className="px-6 py-4 font-semibold">Estado</th>
-                  <th className="px-6 py-4 font-semibold">Ações</th>
-                </tr>
+                  <tr>
+                    <th className="px-6 py-4 font-semibold">Descrição</th>
+                    <th className="px-6 py-4 font-semibold">Conta</th>
+                    <th className="px-6 py-4 font-semibold">Categoria</th>
+                    <th className="px-6 py-4 font-semibold">Tipo</th>
+                    <th className="px-6 py-4 font-semibold">Valor</th>
+                    <th className="px-6 py-4 font-semibold">Vencimento</th>
+                    <th className="px-6 py-4 font-semibold">Prestações</th>
+                    <th className="px-6 py-4 font-semibold">Estado</th>
+                    <th className="px-6 py-4 font-semibold">Ações</th>
+                  </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
-                {filtered.map((expense) => (
-                  <motion.tr
-                    key={expense.id}
-                    layout
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="transition hover:bg-slate-50"
-                  >
-                    <td className="px-6 py-4">
-                      <p className="text-sm font-semibold text-slate-900">{expense.description}</p>
-                      {expense.recurrence && (
-                        <small className="text-xs uppercase tracking-wide text-slate-400">
-                          Recorrência: {expense.recurrence}
-                        </small>
-                      )}
-                      {expense.recurrenceEndDate && (
-                        <small className="block text-xs uppercase tracking-wide text-slate-400">
-                          Até {new Date(expense.recurrenceEndDate).toLocaleDateString('pt-PT')}
-                        </small>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-slate-600">{accountById[expense.accountId]}</td>
-                    <td className="px-6 py-4 text-sm text-slate-600">{expense.category}</td>
-                    <td className="px-6 py-4 text-sm font-semibold text-slate-700">
-                      {expense.amount.toFixed(2)} {expense.currency}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-slate-600">
-                      {new Date(expense.dueDate).toLocaleDateString('pt-PT')}
-                    </td>
-                    <td className="px-6 py-4 text-sm">
-                      <span
-                        className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${statusStyles[expense.status]}`}
+                  {filtered.map((expense) => {
+                    const expenseType = resolveExpenseType(expense);
+                    const installmentInfo = perExpenseInstallments.get(expense.id);
+                    const installmentsSummary =
+                      expenseType === 'fixa'
+                        ? installmentInfo
+                          ? `Faltam ${installmentInfo.remainingFromCurrent} de ${installmentInfo.total}`
+                          : 'Despesa fixa'
+                        : 'Despesa pontual';
+
+                    return (
+                      <motion.tr
+                        key={expense.id}
+                        layout
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        className="transition hover:bg-slate-50"
                       >
-                        <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                        {statusLabels[expense.status]}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-sm">
-                      <button
-                        type="button"
-                        onClick={() => handleEdit(expense)}
-                        className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-500 transition hover:border-slate-300 hover:text-slate-900"
-                      >
-                        <Pencil className="h-4 w-4" />
-                        Editar
-                      </button>
-                    </td>
-                  </motion.tr>
-                ))}
-                {filtered.length === 0 && (
-                  <tr>
-                    <td colSpan={7} className="px-6 py-10 text-center text-sm text-slate-500">
-                      Nenhuma despesa encontrada para os filtros seleccionados.
-                    </td>
-                  </tr>
-                )}
+                        <td className="px-6 py-4">
+                          <p className="text-sm font-semibold text-slate-900">{expense.description}</p>
+                          {expense.recurrence && (
+                            <small className="text-xs uppercase tracking-wide text-slate-400">
+                              Recorrência: {expense.recurrence}
+                            </small>
+                          )}
+                          {expense.recurrenceEndDate && (
+                            <small className="block text-xs uppercase tracking-wide text-slate-400">
+                              Até {new Date(expense.recurrenceEndDate).toLocaleDateString('pt-PT')}
+                            </small>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-slate-600">{accountById[expense.accountId]}</td>
+                        <td className="px-6 py-4 text-sm text-slate-600">{expense.category}</td>
+                        <td className="px-6 py-4 text-sm">
+                          <span
+                            className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${typeStyles[expenseType]}`}
+                          >
+                            {typeLabels[expenseType]}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-sm font-semibold text-slate-700">
+                          {expense.amount.toFixed(2)} {expense.currency}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-slate-600">
+                          {new Date(expense.dueDate).toLocaleDateString('pt-PT')}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-slate-600">{installmentsSummary}</td>
+                        <td className="px-6 py-4 text-sm">
+                          <span
+                            className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${statusStyles[expense.status]}`}
+                          >
+                            <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                            {statusLabels[expense.status]}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-sm">
+                          <button
+                            type="button"
+                            onClick={() => handleEdit(expense)}
+                            className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-500 transition hover:border-slate-300 hover:text-slate-900"
+                          >
+                            <Pencil className="h-4 w-4" />
+                            Editar
+                          </button>
+                        </td>
+                      </motion.tr>
+                    );
+                  })}
+                  {filtered.length === 0 && (
+                    <tr>
+                      <td colSpan={9} className="px-6 py-10 text-center text-sm text-slate-500">
+                        Nenhuma despesa encontrada para os filtros seleccionados.
+                      </td>
+                    </tr>
+                  )}
               </tbody>
             </table>
           </div>
