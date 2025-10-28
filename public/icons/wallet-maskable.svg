@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Ícone maskable minimalista de carteira">
+  <defs>
+    <radialGradient id="maskBg" cx="34%" cy="28%" r="92%">
+      <stop offset="0" stop-color="#1e3a8a" />
+      <stop offset="1" stop-color="#0f172a" />
+    </radialGradient>
+    <linearGradient id="maskWallet" x1="160" y1="192" x2="400" y2="372" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8b5cf6" />
+      <stop offset="1" stop-color="#6366f1" />
+    </linearGradient>
+    <linearGradient id="maskFlap" x1="200" y1="156" x2="364" y2="272" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#d6ccff" />
+      <stop offset="1" stop-color="#818cf8" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="200" fill="url(#maskBg)" />
+  <g transform="translate(68 84)">
+    <rect x="84" y="156" width="320" height="212" rx="92" fill="url(#maskWallet)" />
+    <path d="M120 146h216a92 92 0 0 1 92 92v22H212a92 92 0 0 1-92-92v-22Z" fill="url(#maskFlap)" />
+    <path d="M328 232h80a46 46 0 0 1 46 46v24a46 46 0 0 1-46 46h-80a46 46 0 0 1-46-46v-24a46 46 0 0 1 46-46Z" fill="#111827" />
+    <circle cx="366" cy="278" r="18" fill="#f8fafc" />
+  </g>
+</svg>

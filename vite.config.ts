@@ -8,7 +8,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg'],
+      includeAssets: ['favicon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/wallet.svg', 'icons/wallet-maskable.svg'],
       manifest: {
         name: 'Gestor de Despesas',
         short_name: 'Despesas',
@@ -19,13 +19,25 @@ export default defineConfig({
         start_url: '/',
         icons: [
           {
-            src: 'https://cdn.jsdelivr.net/npm/lucide-static@0.360.0/icons/wallet.svg',
+            src: '/icons/icon-192.png',
+            sizes: '192x192',
+            type: 'image/png',
+            purpose: 'any'
+          },
+          {
+            src: '/icons/icon-512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'any maskable'
+          },
+          {
+            src: '/icons/wallet.svg',
             sizes: 'any',
             type: 'image/svg+xml',
             purpose: 'any'
           },
           {
-            src: 'https://cdn.jsdelivr.net/npm/lucide-static@0.360.0/icons/piggy-bank.svg',
+            src: '/icons/wallet-maskable.svg',
             sizes: 'any',
             type: 'image/svg+xml',
             purpose: 'maskable'
