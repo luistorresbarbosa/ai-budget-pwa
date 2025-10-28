@@ -4,5 +4,7 @@ npm-debug.log*
 .idea
 .vscode
 /dist
+public/icons/icon-192.png
+public/icons/icon-512.png
 coverage
 *.tsbuildinfo
