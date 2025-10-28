@@ -347,6 +347,7 @@ function hasExpenseChanged(existingExpense: Expense | undefined, nextExpense: Ex
     existingExpense.dueDate !== nextExpense.dueDate ||
     existingExpense.recurrence !== nextExpense.recurrence ||
     existingExpense.fixed !== nextExpense.fixed ||
+    existingExpense.type !== nextExpense.type ||
     existingExpense.status !== nextExpense.status ||
     existingExpense.recurringExpenseId !== nextExpense.recurringExpenseId ||
     existingExpense.recurrenceStartDate !== nextExpense.recurrenceStartDate ||
@@ -520,6 +521,7 @@ function buildRecurringExpense(
     dueDate: dueDate ?? document.dueDate ?? existingExpense?.dueDate ?? document.uploadDate,
     recurrence: 'mensal',
     fixed: true,
+    type: 'fixa',
     status: existingExpense?.status ?? 'em-analise',
     supplierId: existingExpense?.supplierId ?? supplierId,
     deduplicationKey: deduplicationKey ?? existingExpense?.deduplicationKey

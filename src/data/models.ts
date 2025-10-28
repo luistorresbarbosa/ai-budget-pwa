@@ -50,6 +50,7 @@ export interface Expense {
   dueDate: string;
   recurrence?: 'mensal' | 'anual' | 'semestral' | 'pontual';
   fixed: boolean;
+  type: 'fixa' | 'variavel';
   status: 'planeado' | 'pago' | 'em-analise';
   supplierId?: string;
   paidAt?: string;

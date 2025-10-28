@@ -61,6 +61,7 @@ describe('expenseDerivation deduplication', () => {
       currency: baseDocument.currency!,
       dueDate: baseDocument.dueDate!,
       fixed: true,
+      type: 'fixa',
       status: 'planeado',
       supplierId: undefined
     };
