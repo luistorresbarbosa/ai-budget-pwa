@@ -75,84 +75,54 @@
         },
         {
             "parameters": {
-                "functionCode": "const emailRegex = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}/g\nconst collectEmails = value => {\n  if (value === undefined || value === null) {\n    return\n  }\n  if (typeof value === 'string') {\n    const matches = value.match(emailRegex) || []\n    for (const email of matches) {\n      allowedEmails.add(email.toLowerCase())\n    }\n    return\n  }\n  if (Array.isArray(value)) {\n    for (const entry of value) {\n      collectEmails(entry)\n    }\n    return\n  }\n  if (typeof value === 'object') {\n    if (value.stringValue !== undefined) {\n      collectEmails(value.stringValue)\n      return\n    }\n    if (value.arrayValue !== undefined) {\n      collectEmails(value.arrayValue?.values || [])\n      return\n    }\n    for (const nested of Object.values(value)) {\n      collectEmails(nested)\n    }\n  }\n}\nconst allowedEmails = new Set()\nfor (const item of items) {\n  collectEmails(item.json)\n}\nreturn [{\n  json: {\n    supplierEmails: Array.from(allowedEmails).sort(),\n    suppliersFetched: items.length,\n    fetchedAt: new Date().toISOString()\n  }\n}]"
+                "functionCode": "const loadPdfModule = async () => {\n  try {\n    const imported = await import('pdf-parse')\n    return imported.default || imported\n  } catch (error) {\n    throw new Error('Failed to load pdf-parse module. Install it in your n8n instance (npm install pdf-parse).')\n  }\n}\nconst pdfParse = await loadPdfModule()\nconst sanitizeText = text => {\n  if (typeof text !== 'string') {\n    return ''\n  }\n  return text\n    .replace(/\r\n/g, '\n')\n    .replace(/\r/g, '\n')\n    .replace(/\u0000/g, '')\n    .replace(/[\u0001-\u0009\u000B-\u001F]+/g, ' ')\n    .replace(/[\t\f\v]+/g, ' ')\n    .replace(/[^\S\n]+/g, ' ')\n    .replace(/\n{3,}/g, '\n\n')\n    .trim()\n}\nconst buildPrompt = ({ emailMetadata, documentText, summary }) => {\n  const metadataLines = []\n  if (emailMetadata.source) metadataLines.push(`Source: ${emailMetadata.source}`)\n  if (emailMetadata.emailDate) metadataLines.push(`Email-Date: ${emailMetadata.emailDate}`)\n  if (emailMetadata.attachmentName) metadataLines.push(`Attachment: ${emailMetadata.attachmentName}`)\n  if (emailMetadata.mimeType) metadataLines.push(`Mime-Type: ${emailMetadata.mimeType}`)\n  if (Array.isArray(emailMetadata.matchedSupplierEmails) && emailMetadata.matchedSupplierEmails.length) {\n    metadataLines.push(`Matched-Suppliers: ${emailMetadata.matchedSupplierEmails.join(', ')}`)\n  }\n  if (Array.isArray(emailMetadata.allowedSupplierEmails) && emailMetadata.allowedSupplierEmails.length) {\n    metadataLines.push(`Allowlist: ${emailMetadata.allowedSupplierEmails.join(', ')}`)\n  }\n  if (summary.pageCount !== undefined) {\n    metadataLines.push(`PDF-Pages: ${summary.pageCount}`)\n  }\n  if (summary.wordCount !== undefined) {\n    metadataLines.push(`PDF-Words: ${summary.wordCount}`)\n  }\n  const header = metadataLines.length ? metadataLines.join('\n') : 'No additional email metadata provided.'\n  return `You are an autonomous finance assistant that extracts structured data from European invoices.\nAnalyse the provided invoice text and reply with a strict JSON object using camelCase keys.\nRequired JSON schema:\n{\n  \\"issueDate\\": string | null,\n  \\"total\\": number | null,\n  \\"currency\\": string | null,\n  \\"supplierTaxId\\": string | null,\n  \\"customerTaxId\\": string | null,\n  \\"invoiceNumber\\": string | null,\n  \\"paymentReference\\": string | null,\n  \\"lineItems\\": [\n    {\n      \\"description\\": string | null,\n      \\"quantity\\": number | null,\n      \\"unitPrice\\": number | null,\n      \\"total\\": number | null\n    }\n  ]\n}.\nOnly include fields listed above. Use null when a value is missing.\nDo not add additional commentary.\n\nEmail metadata:\n${header}\n\nInvoice text:\n${documentText}`\n}\nconst results = []\nfor (const item of items) {\n  const metadata = item.json?.emailMetadata || {}\n  const binaryData = item.binary?.data?.data\n  if (!binaryData) {\n    results.push({ json: { emailMetadata: metadata, documentText: '', agentPrompt: buildPrompt({ emailMetadata: metadata, documentText: '', summary: {} }), parserNotes: { warning: 'Attachment binary payload missing or empty.' } } })\n    continue\n  }\n  try {\n    const buffer = Buffer.from(binaryData, 'base64')\n    const parsed = await pdfParse(buffer)\n    const cleanText = sanitizeText(parsed?.text || '')\n    const summary = {\n      pageCount: typeof parsed?.numpages === 'number' ? parsed.numpages : undefined,\n      wordCount: cleanText ? cleanText.split(/\s+/).filter(Boolean).length : 0\n    }\n    results.push({\n      json: {\n        emailMetadata: metadata,\n        documentText: cleanText,\n        agentPrompt: buildPrompt({ emailMetadata: metadata, documentText: cleanText, summary }),\n        parserNotes: { summary }\n      }\n    })\n  } catch (error) {\n    results.push({\n      json: {\n        emailMetadata: metadata,\n        documentText: '',\n        agentPrompt: buildPrompt({ emailMetadata: metadata, documentText: '', summary: {} }),\n        parserNotes: { error: error.message || String(error) }\n      }\n    })\n  }\n}\nreturn results"
             },
-            "id": "12",
-            "name": "Format Supplier Emails",
+            "id": "13",
+            "name": "Extract PDF Text",
             "type": "n8n-nodes-base.function",
             "typeVersion": 2,
             "position": [
-                160,
-                -220
+                940,
+                -200
             ]
         },
         {
             "parameters": {
-                "functionCode": "const emailRegex = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}/g\nconst supplierInput = this.getInputData(1) || []\nconst supplierEmails = new Set()\nif (supplierInput.length > 0) {\n  const allowlist = supplierInput[0]?.json?.supplierEmails || []\n  for (const email of Array.isArray(allowlist) ? allowlist : []) {\n    if (typeof email === 'string' && email.trim() !== '') {\n      supplierEmails.add(email.trim().toLowerCase())\n    }\n  }\n}\nconst allowAll = supplierEmails.size === 0\nconst extractEmails = headerValue => {\n  if (typeof headerValue !== 'string' || headerValue.trim() === '') {\n    return []\n  }\n  const matches = headerValue.match(emailRegex) || []\n  return matches.map(email => email.toLowerCase())\n}\nconst itemsWithAttachments = []\nfor (const item of items) {\n  const headers = item.json?.payload?.headers || []\n  const fromHeader = headers.find(h => h.name === 'From')?.value || ''\n  const dateHeader = headers.find(h => h.name === 'Date')?.value || ''\n  const messageEmails = extractEmails(fromHeader)\n  const matchedEmails = allowAll ? messageEmails : messageEmails.filter(email => supplierEmails.has(email))\n  if (!allowAll && matchedEmails.length === 0) {\n    continue\n  }\n  const attachments = item.json?.payload?.parts || []\n  const attachmentParts = attachments.filter(part => part.filename && part.body?.attachmentId)\n  for (const part of attachmentParts) {\n    itemsWithAttachments.push({\n      json: {\n        messageId: item.json.id,\n        threadId: item.json.threadId,\n        snippet: item.json.snippet,\n        attachmentId: part.body.attachmentId,\n        attachmentName: part.filename,\n        mimeType: part.mimeType,\n        invoiceSource: fromHeader || '',\n        invoiceDate: dateHeader || '',\n        allowedSupplierEmails: Array.from(supplierEmails),\n        matchedSupplierEmails: matchedEmails,\n        supplierAllowlistEnforced: !allowAll\n      }\n    })\n  }\n}\nreturn itemsWithAttachments"
-            },
-            "id": "3",
-            "name": "Filter Attachments",
-            "type": "n8n-nodes-base.function",
-            "typeVersion": 2,
-            "position": [
-                160,
-                0
-            ]
-        },
-        {
-            "parameters": {
-                "resource": "message",
-                "operation": "getAttachment",
-                "messageId": "={{$json.messageId}}",
-                "attachmentId": "={{$json.attachmentId}}"
-            },
-            "id": "4",
-            "name": "Download Attachment",
-            "type": "n8n-nodes-base.gmail",
-            "typeVersion": 2,
-            "position": [
-                420,
-                0
-            ],
-            "credentials": {
-                "gmailOAuth2": {
-                    "name": "Gmail OAuth2 Account"
+                "promptType": "define",
+                "text": "={{$json.agentPrompt}}",
+                "hasOutputParser": false,
+                "needsFallback": false,
+                "options": {
+                    "systemMessage": "You are a meticulous finance assistant that extracts structured data from invoices and always answers with valid JSON.",
+                    "maxIterations": 4,
+                    "returnIntermediateSteps": true,
+                    "passthroughBinaryImages": false
                 }
-            }
-        },
-        {
-            "parameters": {
-                "functionCode": "const DEFAULT_MIME = 'application/pdf'\nreturn items.map(item => {\n  const { json, binary } = item\n  const attachmentName = json.attachmentName || 'invoice.pdf'\n  const mimeType = json.mimeType || DEFAULT_MIME\n  const allowedSupplierEmails = Array.isArray(json.allowedSupplierEmails) ? json.allowedSupplierEmails : []\n  const matchedSupplierEmails = Array.isArray(json.matchedSupplierEmails) ? json.matchedSupplierEmails : []\n  const primaryMatch = matchedSupplierEmails.length > 0 ? matchedSupplierEmails[0] : ''\n  return {\n    json: {\n      emailMetadata: {\n        messageId: json.messageId,\n        threadId: json.threadId,\n        snippet: json.snippet || '',\n        source: json.invoiceSource || '',\n        emailDate: json.invoiceDate || '',\n        attachmentName,\n        mimeType,\n        supplierAllowlistEnforced: Boolean(json.supplierAllowlistEnforced),\n        allowedSupplierEmails,\n        matchedSupplierEmails,\n        primarySupplierEmail: primaryMatch\n      }\n    },\n    binary: {\n      data: {\n        data: binary.data.data,\n        fileName: attachmentName,\n        mimeType\n      }\n    }\n  }\n})"
-            },
-            "id": "5",
-            "name": "Prepare Binary",
-            "type": "n8n-nodes-base.function",
-            "typeVersion": 2,
-            "position": [
-                680,
-                0
-            ]
-        },
-        {
-            "parameters": {
-                "url": "={{$env.INVOICE_PARSER_ENDPOINT}}",
-                "options": {},
-                "allowUnauthorizedCerts": false,
-                "jsonParameters": true,
-                "responseFormat": "json",
-                "bodyParametersJson": "={\n  \"fileName\": $json.emailMetadata.attachmentName,\n  \"mimeType\": $json.emailMetadata.mimeType,\n  \"fileData\": $binary.data.data,\n  \"source\": $json.emailMetadata.source,\n  \"emailSnippet\": $json.emailMetadata.snippet,\n  \"emailDate\": $json.emailMetadata.emailDate\n}"
             },
             "id": "6",
             "name": "Extract Invoice Data",
-            "type": "n8n-nodes-base.httpRequest",
+            "type": "@n8n/n8n-nodes-langchain.agent",
             "typeVersion": 3,
             "position": [
-                940,
-                0
+                1180,
+                -200
+            ]
+        },
+        {
+            "parameters": {
+                "model": "gpt-4o-mini"
+            },
+            "id": "14",
+            "name": "OpenAI Chat Model",
+            "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+            "typeVersion": 1.3,
+            "position": [
+                980,
+                -460
             ],
             "credentials": {
-                "httpBasicAuth": {
-                    "name": "Invoice Parser Credentials"
+                "openAiApi": {
+                    "name": "OpenAI API"
                 }
             }
         },
@@ -165,7 +135,7 @@
             "type": "n8n-nodes-base.function",
             "typeVersion": 2,
             "position": [
-                1340,
+                1500,
                 0
             ]
         },
@@ -185,7 +155,7 @@
             "type": "n8n-nodes-base.googleFirebaseCloudFirestore",
             "typeVersion": 1.1,
             "position": [
-                1600,
+                1760,
                 0
             ],
             "credentials": {
@@ -196,15 +166,15 @@
         },
         {
             "parameters": {
-                "functionCode": "return items.map(item => ({ json: { parserResult: item.json || {} } }))"
+                "functionCode": "const extractJson = output => {\n  if (output === undefined || output === null) {\n    return {}\n  }\n  if (typeof output === 'object') {\n    return output\n  }\n  const text = String(output).trim()\n  if (!text) {\n    return {}\n  }\n  const tryParse = candidate => {\n    try {\n      return JSON.parse(candidate)\n    } catch (error) {\n      return null\n    }\n  }\n  const direct = tryParse(text)\n  if (direct && typeof direct === 'object') {\n    return direct\n  }\n  const firstBrace = text.indexOf('{')\n  const lastBrace = text.lastIndexOf('}')\n  if (firstBrace >= 0 && lastBrace > firstBrace) {\n    const sliced = text.slice(firstBrace, lastBrace + 1)\n    const parsed = tryParse(sliced)\n    if (parsed && typeof parsed === 'object') {\n      return parsed\n    }\n  }\n  return { raw: text }\n}\nreturn items.map(item => {\n  const output = item.json?.output ?? item.json\n  const parsed = extractJson(output)\n  const intermediateSteps = Array.isArray(item.json?.intermediateSteps) ? item.json.intermediateSteps : []\n  return {\n    json: {\n      parserResult: parsed,\n      agentDebug: {\n        intermediateSteps,\n        rawOutput: output\n      }\n    }\n  }\n})"
             },
             "id": "9",
             "name": "Wrap Parser Response",
             "type": "n8n-nodes-base.function",
             "typeVersion": 2,
             "position": [
-                1100,
-                -180
+                1360,
+                -200
             ]
         },
         {
@@ -281,6 +251,17 @@
                         "index": 1
                     },
                     {
+                        "node": "Extract PDF Text",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Extract PDF Text": {
+            "main": [
+                [
+                    {
                         "node": "Extract Invoice Data",
                         "type": "main",
                         "index": 0
@@ -350,6 +331,17 @@
                         "node": "Filter Attachments",
                         "type": "main",
                         "index": 1
+                    }
+                ]
+            ]
+        },
+        "OpenAI Chat Model": {
+            "ai_languageModel": [
+                [
+                    {
+                        "node": "Extract Invoice Data",
+                        "type": "ai_languageModel",
+                        "index": 0
                     }
                 ]
             ]
