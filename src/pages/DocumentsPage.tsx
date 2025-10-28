@@ -21,7 +21,7 @@ import { extractPdfMetadata, isPdfFile } from '../services/pdfParser';
 import { persistDocumentMetadata, removeDocumentMetadata } from '../services/documents';
 import { validateFirebaseConfig } from '../services/firebase';
 import { processDocumentForDerivedEntities } from '../services/documentAutomation';
-import { findAccountByHint } from '../services/expenseDerivation';
+import { findAccountByHint as resolveAccountByHint } from '../services/expenseDerivation';
 
 interface UploadFeedback {
   type: 'success' | 'error' | 'info';
@@ -447,7 +447,7 @@ function DocumentsPage() {
             const accountHint = doc.sourceType === 'extracto'
               ? doc.statementAccountIban ?? doc.accountHint
               : doc.accountHint;
-            const matchedAccount = findAccountByHint(accountHint, accounts);
+            const matchedAccount = resolveAccountByHint(accountHint, accounts);
             const supplier = doc.supplierId
               ? suppliers.find((item) => item.id === doc.supplierId)
               : undefined;
