@@ -1,46 +1,23 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Ícone moderno de carteira">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Ícone minimalista de carteira">
   <defs>
-    <linearGradient id="bg" x1="16" y1="16" x2="112" y2="112" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#0ea5e9" />
-      <stop offset="0.5" stop-color="#0369a1" />
-      <stop offset="1" stop-color="#0f172a" />
+    <linearGradient id="bg" x1="24" y1="16" x2="116" y2="120" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#111827" />
+      <stop offset="1" stop-color="#1d4ed8" />
     </linearGradient>
-    <linearGradient id="wallet" x1="38" y1="40" x2="104" y2="104" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#facc15" />
-      <stop offset="0.12" stop-color="#f59e0b" />
-      <stop offset="0.45" stop-color="#d97706" />
-      <stop offset="1" stop-color="#92400e" />
+    <linearGradient id="wallet" x1="36" y1="44" x2="110" y2="102" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8b5cf6" />
+      <stop offset="1" stop-color="#6366f1" />
     </linearGradient>
-    <linearGradient id="walletEdge" x1="24" y1="36" x2="112" y2="108" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#fff7ed" stop-opacity="0.85" />
-      <stop offset="1" stop-color="#7c2d12" stop-opacity="0.4" />
+    <linearGradient id="flap" x1="42" y1="34" x2="106" y2="74" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#d6ccff" />
+      <stop offset="1" stop-color="#818cf8" />
     </linearGradient>
-    <linearGradient id="cash" x1="40" y1="24" x2="104" y2="72" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#bbf7d0" />
-      <stop offset="1" stop-color="#10b981" />
-    </linearGradient>
-    <radialGradient id="coin" cx="50%" cy="35%" r="0.8">
-      <stop offset="0" stop-color="#fef3c7" />
-      <stop offset="0.65" stop-color="#facc15" />
-      <stop offset="1" stop-color="#b45309" />
-    </radialGradient>
   </defs>
-  <rect width="128" height="128" rx="30" fill="url(#bg)" />
-  <g opacity="0.22">
-    <path d="M30 30h68a12 12 0 0 1 12 12v44a20 20 0 0 1-20 20H44a20 20 0 0 1-20-20V30Z" fill="#38bdf8" />
-  </g>
-  <g transform="rotate(-6 64 72)">
-    <path d="M32 40h60a16 16 0 0 1 16 16v30a18 18 0 0 1-18 18H38a18 18 0 0 1-18-18V52a12 12 0 0 1 12-12Z" fill="url(#wallet)" />
-    <path d="M32 44h64a12 12 0 0 1 12 12v24a18 18 0 0 1-18 18H38a18 18 0 0 1-18-18V56a12 12 0 0 1 12-12Z" fill="none" stroke="url(#walletEdge)" stroke-width="5" stroke-linejoin="round" />
-    <path d="M36 36h52a12 12 0 0 1 12 12v10H48a12 12 0 0 1-12-12V36Z" fill="url(#cash)" opacity="0.95" />
-    <path d="M92 60h16a10 10 0 0 1 10 10v6a10 10 0 0 1-10 10H92a10 10 0 0 1-10-10v-6a10 10 0 0 1 10-10Z" fill="#0f172a" opacity="0.55" />
-    <path d="M90 58h16a10 10 0 0 1 10 10v6a10 10 0 0 1-10 10H90a10 10 0 0 1-10-10v-6a10 10 0 0 1 10-10Z" fill="#1e293b" />
-    <circle cx="98" cy="71" r="5" fill="#fbbf24" />
-    <circle cx="98" cy="71" r="3" fill="#fde68a" />
-  </g>
-  <g transform="translate(18 -6) rotate(-12 104 40)">
-    <circle cx="94" cy="42" r="10" fill="url(#coin)" />
-    <circle cx="82" cy="36" r="8" fill="url(#coin)" opacity="0.7" />
-    <circle cx="102" cy="34" r="6" fill="url(#coin)" opacity="0.8" />
+  <rect width="128" height="128" rx="28" fill="url(#bg)" />
+  <g transform="translate(12 16)">
+    <rect x="18" y="32" width="84" height="56" rx="20" fill="url(#wallet)" />
+    <path d="M28 30h56a20 20 0 0 1 20 20v8H48a20 20 0 0 1-20-20v-8Z" fill="url(#flap)" />
+    <path d="M90 58h18a12 12 0 0 1 12 12v6a12 12 0 0 1-12 12H90a12 12 0 0 1-12-12v-6a12 12 0 0 1 12-12Z" fill="#111827" />
+    <circle cx="96" cy="71" r="4" fill="#f8fafc" />
   </g>
 </svg>
