@@ -1,248 +1,360 @@
 {
-  "name": "Gmail Invoice Extractor",
-  "nodes": [
-    {
-      "parameters": {
-        "triggerTimes": {
-          "item": [
-            {
-              "mode": "everyX",
-              "unit": "minutes",
-              "value": 15
+    "name": "Gmail Invoice Extractor",
+    "nodes": [
+        {
+            "parameters": {
+                "triggerTimes": {
+                    "item": [
+                        {
+                            "mode": "everyX",
+                            "unit": "minutes",
+                            "value": 15
+                        }
+                    ]
+                }
+            },
+            "id": "1",
+            "name": "Cron",
+            "type": "n8n-nodes-base.cron",
+            "typeVersion": 2,
+            "position": [
+                -320,
+                0
+            ]
+        },
+        {
+            "parameters": {
+                "resource": "message",
+                "operation": "getAll",
+                "returnAll": true,
+                "additionalFields": {
+                    "q": "has:attachment newer_than:7d (subject:fatura OR subject:invoice)",
+                    "format": "metadata",
+                    "labelIds": [
+                        "INBOX"
+                    ]
+                }
+            },
+            "id": "2",
+            "name": "Fetch Gmail",
+            "type": "n8n-nodes-base.gmail",
+            "typeVersion": 2,
+            "position": [
+                -80,
+                0
+            ],
+            "credentials": {
+                "gmailOAuth2": {
+                    "name": "Gmail OAuth2 Account"
+                }
             }
-          ]
+        },
+        {
+            "parameters": {
+                "authentication": "serviceAccount",
+                "resource": "document",
+                "operation": "getAll",
+                "projectId": "={{$env.FIREBASE_PROJECT_ID}}",
+                "database": "(default)",
+                "collection": "={{$env.FIREBASE_SUPPLIERS_COLLECTION || 'suppliers'}}",
+                "returnAll": true
+            },
+            "id": "11",
+            "name": "Fetch Supplier Emails",
+            "type": "n8n-nodes-base.googleFirebaseCloudFirestore",
+            "typeVersion": 1.1,
+            "position": [
+                -80,
+                -220
+            ],
+            "credentials": {
+                "googleApi": {
+                    "name": "Firebase Service Account"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "functionCode": "const loadPdfModule = async () => {\n  try {\n    const imported = await import('pdf-parse')\n    return imported.default || imported\n  } catch (error) {\n    throw new Error('Failed to load pdf-parse module. Install it in your n8n instance (npm install pdf-parse).')\n  }\n}\nconst pdfParse = await loadPdfModule()\nconst sanitizeText = text => {\n  if (typeof text !== 'string') {\n    return ''\n  }\n  return text\n    .replace(/\r\n/g, '\n')\n    .replace(/\r/g, '\n')\n    .replace(/\u0000/g, '')\n    .replace(/[\u0001-\u0009\u000B-\u001F]+/g, ' ')\n    .replace(/[\t\f\\v]+/g, ' ')\n    .replace(/[^\\S\n]+/g, ' ')\n    .replace(/\n{3,}/g, '\n\n')\n    .trim()\n}\nconst buildPrompt = ({ emailMetadata, documentText, summary }) => {\n  const metadataLines = []\n  if (emailMetadata.source) metadataLines.push(`Source: ${emailMetadata.source}`)\n  if (emailMetadata.emailDate) metadataLines.push(`Email-Date: ${emailMetadata.emailDate}`)\n  if (emailMetadata.attachmentName) metadataLines.push(`Attachment: ${emailMetadata.attachmentName}`)\n  if (emailMetadata.mimeType) metadataLines.push(`Mime-Type: ${emailMetadata.mimeType}`)\n  if (Array.isArray(emailMetadata.matchedSupplierEmails) && emailMetadata.matchedSupplierEmails.length) {\n    metadataLines.push(`Matched-Suppliers: ${emailMetadata.matchedSupplierEmails.join(', ')}`)\n  }\n  if (Array.isArray(emailMetadata.allowedSupplierEmails) && emailMetadata.allowedSupplierEmails.length) {\n    metadataLines.push(`Allowlist: ${emailMetadata.allowedSupplierEmails.join(', ')}`)\n  }\n  if (summary.pageCount !== undefined) {\n    metadataLines.push(`PDF-Pages: ${summary.pageCount}`)\n  }\n  if (summary.wordCount !== undefined) {\n    metadataLines.push(`PDF-Words: ${summary.wordCount}`)\n  }\n  const header = metadataLines.length ? metadataLines.join('\n') : 'No additional email metadata provided.'\n  return `You are an autonomous finance assistant that extracts structured data from European invoices.\nAnalyse the provided invoice text and reply with a strict JSON object using camelCase keys.\nRequired JSON schema:\n{\n  \\\"issueDate\\\": string | null,\n  \\\"total\\\": number | null,\n  \\\"currency\\\": string | null,\n  \\\"supplierTaxId\\\": string | null,\n  \\\"customerTaxId\\\": string | null,\n  \\\"invoiceNumber\\\": string | null,\n  \\\"paymentReference\\\": string | null,\n  \\\"lineItems\\\": [\n    {\n      \\\"description\\\": string | null,\n      \\\"quantity\\\": number | null,\n      \\\"unitPrice\\\": number | null,\n      \\\"total\\\": number | null\n    }\n  ]\n}.\nOnly include fields listed above. Use null when a value is missing.\nDo not add additional commentary.\n\nEmail metadata:\n${header}\n\nInvoice text:\n${documentText}`\n}\nconst results = []\nfor (const item of items) {\n  const metadata = item.json?.emailMetadata || {}\n  const binaryData = item.binary?.data?.data\n  if (!binaryData) {\n    results.push({ json: { emailMetadata: metadata, documentText: '', agentPrompt: buildPrompt({ emailMetadata: metadata, documentText: '', summary: {} }), parserNotes: { warning: 'Attachment binary payload missing or empty.' } } })\n    continue\n  }\n  try {\n    const buffer = Buffer.from(binaryData, 'base64')\n    const parsed = await pdfParse(buffer)\n    const cleanText = sanitizeText(parsed?.text || '')\n    const summary = {\n      pageCount: typeof parsed?.numpages === 'number' ? parsed.numpages : undefined,\n      wordCount: cleanText ? cleanText.split(/\\s+/).filter(Boolean).length : 0\n    }\n    results.push({\n      json: {\n        emailMetadata: metadata,\n        documentText: cleanText,\n        agentPrompt: buildPrompt({ emailMetadata: metadata, documentText: cleanText, summary }),\n        parserNotes: { summary }\n      }\n    })\n  } catch (error) {\n    results.push({\n      json: {\n        emailMetadata: metadata,\n        documentText: '',\n        agentPrompt: buildPrompt({ emailMetadata: metadata, documentText: '', summary: {} }),\n        parserNotes: { error: error.message || String(error) }\n      }\n    })\n  }\n}\nreturn results"
+            },
+            "id": "13",
+            "name": "Extract PDF Text",
+            "type": "n8n-nodes-base.function",
+            "typeVersion": 2,
+            "position": [
+                940,
+                -200
+            ]
+        },
+        {
+            "parameters": {
+                "promptType": "define",
+                "text": "={{$json.agentPrompt}}",
+                "hasOutputParser": false,
+                "needsFallback": false,
+                "options": {
+                    "systemMessage": "You are a meticulous finance assistant that extracts structured data from invoices and always answers with valid JSON.",
+                    "maxIterations": 4,
+                    "returnIntermediateSteps": true,
+                    "passthroughBinaryImages": false
+                }
+            },
+            "id": "6",
+            "name": "Extract Invoice Data",
+            "type": "@n8n/n8n-nodes-langchain.agent",
+            "typeVersion": 3,
+            "position": [
+                1180,
+                -200
+            ]
+        },
+        {
+            "parameters": {
+                "model": "gpt-4o-mini"
+            },
+            "id": "14",
+            "name": "OpenAI Chat Model",
+            "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+            "typeVersion": 1.3,
+            "position": [
+                980,
+                -460
+            ],
+            "credentials": {
+                "openAiApi": {
+                    "name": "OpenAI API"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "functionCode": "const now = new Date().toISOString()\nreturn items.map(item => {\n  const parserResult = item.json.parserResult || {}\n  const metadata = item.json.emailMetadata || {}\n  const safeNumber = value => {\n    if (value === undefined || value === null || value === '') {\n      return null\n    }\n    const numeric = Number(value)\n    return Number.isNaN(numeric) ? null : numeric\n  }\n  const normalizeLineItems = Array.isArray(parserResult.lineItems) ? parserResult.lineItems : []\n  const allowedSupplierEmails = Array.isArray(metadata.allowedSupplierEmails) ? metadata.allowedSupplierEmails : []\n  const matchedSupplierEmails = Array.isArray(metadata.matchedSupplierEmails) ? metadata.matchedSupplierEmails : []\n  const primarySupplierEmail = metadata.primarySupplierEmail || matchedSupplierEmails[0] || null\n  return {\n    json: {\n      messageId: metadata.messageId || '',\n      threadId: metadata.threadId || '',\n      source: metadata.source || '',\n      emailSnippet: metadata.snippet || '',\n      emailDate: metadata.emailDate || '',\n      attachmentName: metadata.attachmentName || '',\n      mimeType: metadata.mimeType || '',\n      issueDate: parserResult.issueDate || metadata.emailDate || '',\n      total: safeNumber(parserResult.total),\n      currency: parserResult.currency || null,\n      supplierTaxId: parserResult.supplierTaxId || null,\n      customerTaxId: parserResult.customerTaxId || null,\n      invoiceNumber: parserResult.invoiceNumber || null,\n      paymentReference: parserResult.paymentReference || null,\n      lineItems: normalizeLineItems.map(item => ({\n        description: item.description || '',\n        quantity: safeNumber(item.quantity),\n        unitPrice: safeNumber(item.unitPrice),\n        total: safeNumber(item.total)\n      })),\n      rawParserResponse: parserResult,\n      supplierAllowlistEnforced: Boolean(metadata.supplierAllowlistEnforced),\n      allowedSupplierEmails,\n      matchedSupplierEmails,\n      primarySupplierEmail,\n      createdAt: now,\n      updatedAt: now\n    }\n  }\n})"
+            },
+            "id": "7",
+            "name": "Shape Firestore Payload",
+            "type": "n8n-nodes-base.function",
+            "typeVersion": 2,
+            "position": [
+                1500,
+                0
+            ]
+        },
+        {
+            "parameters": {
+                "authentication": "serviceAccount",
+                "resource": "document",
+                "operation": "upsert",
+                "projectId": "={{$env.FIREBASE_PROJECT_ID}}",
+                "database": "(default)",
+                "collection": "={{$env.FIREBASE_INVOICES_COLLECTION || 'invoices'}}",
+                "updateKey": "messageId",
+                "columns": "messageId, threadId, source, emailSnippet, emailDate, attachmentName, mimeType, issueDate, total, currency, supplierTaxId, customerTaxId, invoiceNumber, paymentReference, lineItems, rawParserResponse, createdAt, updatedAt"
+            },
+            "id": "8",
+            "name": "Upload to Firestore",
+            "type": "n8n-nodes-base.googleFirebaseCloudFirestore",
+            "typeVersion": 1.1,
+            "position": [
+                1760,
+                0
+            ],
+            "credentials": {
+                "googleApi": {
+                    "name": "Firebase Service Account"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "functionCode": "const extractJson = output => {\n  if (output === undefined || output === null) {\n    return {}\n  }\n  if (typeof output === 'object') {\n    return output\n  }\n  const text = String(output).trim()\n  if (!text) {\n    return {}\n  }\n  const tryParse = candidate => {\n    try {\n      return JSON.parse(candidate)\n    } catch (error) {\n      return null\n    }\n  }\n  const direct = tryParse(text)\n  if (direct && typeof direct === 'object') {\n    return direct\n  }\n  const firstBrace = text.indexOf('{')\n  const lastBrace = text.lastIndexOf('}')\n  if (firstBrace >= 0 && lastBrace > firstBrace) {\n    const sliced = text.slice(firstBrace, lastBrace + 1)\n    const parsed = tryParse(sliced)\n    if (parsed && typeof parsed === 'object') {\n      return parsed\n    }\n  }\n  return { raw: text }\n}\nreturn items.map(item => {\n  const output = item.json?.output ?? item.json\n  const parsed = extractJson(output)\n  const intermediateSteps = Array.isArray(item.json?.intermediateSteps) ? item.json.intermediateSteps : []\n  return {\n    json: {\n      parserResult: parsed,\n      agentDebug: {\n        intermediateSteps,\n        rawOutput: output\n      }\n    }\n  }\n})"
+            },
+            "id": "9",
+            "name": "Wrap Parser Response",
+            "type": "n8n-nodes-base.function",
+            "typeVersion": 2,
+            "position": [
+                1360,
+                -200
+            ]
+        },
+        {
+            "parameters": {
+                "mode": "combine",
+                "combineBy": "combineByPosition"
+            },
+            "id": "10",
+            "name": "Merge Parser Metadata",
+            "type": "n8n-nodes-base.merge",
+            "typeVersion": 3.2,
+            "position": [
+                1220,
+                -60
+            ]
         }
-      },
-      "id": "1",
-      "name": "Cron",
-      "type": "n8n-nodes-base.cron",
-      "typeVersion": 2,
-      "position": [
-        -320,
-        0
-      ]
-    },
-    {
-      "parameters": {
-        "resource": "message",
-        "operation": "getAll",
-        "returnAll": true,
-        "additionalFields": {
-          "q": "has:attachment newer_than:7d (subject:fatura OR subject:invoice)",
-          "format": "metadata",
-          "labelIds": [
-            "INBOX"
-          ]
+    ],
+    "connections": {
+        "Cron": {
+            "main": [
+                [
+                    {
+                        "node": "Fetch Gmail",
+                        "type": "main",
+                        "index": 0
+                    },
+                    {
+                        "node": "Fetch Supplier Emails",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Fetch Gmail": {
+            "main": [
+                [
+                    {
+                        "node": "Filter Attachments",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Filter Attachments": {
+            "main": [
+                [
+                    {
+                        "node": "Download Attachment",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Download Attachment": {
+            "main": [
+                [
+                    {
+                        "node": "Prepare Binary",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Prepare Binary": {
+            "main": [
+                [
+                    {
+                        "node": "Merge Parser Metadata",
+                        "type": "main",
+                        "index": 1
+                    },
+                    {
+                        "node": "Extract PDF Text",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Extract PDF Text": {
+            "main": [
+                [
+                    {
+                        "node": "Extract Invoice Data",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Extract Invoice Data": {
+            "main": [
+                [
+                    {
+                        "node": "Wrap Parser Response",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Shape Firestore Payload": {
+            "main": [
+                [
+                    {
+                        "node": "Upload to Firestore",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Wrap Parser Response": {
+            "main": [
+                [
+                    {
+                        "node": "Merge Parser Metadata",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Merge Parser Metadata": {
+            "main": [
+                [
+                    {
+                        "node": "Shape Firestore Payload",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Fetch Supplier Emails": {
+            "main": [
+                [
+                    {
+                        "node": "Format Supplier Emails",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Format Supplier Emails": {
+            "main": [
+                [
+                    {
+                        "node": "Filter Attachments",
+                        "type": "main",
+                        "index": 1
+                    }
+                ]
+            ]
+        },
+        "OpenAI Chat Model": {
+            "ai_languageModel": [
+                [
+                    {
+                        "node": "Extract Invoice Data",
+                        "type": "ai_languageModel",
+                        "index": 0
+                    }
+                ]
+            ]
         }
-      },
-      "id": "2",
-      "name": "Fetch Gmail",
-      "type": "n8n-nodes-base.gmail",
-      "typeVersion": 2,
-      "position": [
-        -80,
-        0
-      ],
-      "credentials": {
-        "gmailOAuth2": {
-          "name": "Gmail OAuth2 Account"
-        }
-      }
     },
-    {
-      "parameters": {
-        "functionCode": "const itemsWithAttachments = []\nfor (const item of items) {\n  const attachments = item.json?.payload?.parts || []\n  const attachmentParts = attachments.filter(part => part.filename && part.body?.attachmentId)\n  for (const part of attachmentParts) {\n    itemsWithAttachments.push({\n      json: {\n        messageId: item.json.id,\n        threadId: item.json.threadId,\n        snippet: item.json.snippet,\n        attachmentId: part.body.attachmentId,\n        attachmentName: part.filename,\n        mimeType: part.mimeType,\n        invoiceSource: item.json.payload?.headers?.find(h => h.name === 'From')?.value || '',\n        invoiceDate: item.json.payload?.headers?.find(h => h.name === 'Date')?.value || ''\n      }\n    })\n  }\n}\nreturn itemsWithAttachments"
-      },
-      "id": "3",
-      "name": "Filter Attachments",
-      "type": "n8n-nodes-base.function",
-      "typeVersion": 2,
-      "position": [
-        160,
-        0
-      ]
+    "pinData": {},
+    "settings": {
+        "executionOrder": "v1"
     },
-    {
-      "parameters": {
-        "resource": "message",
-        "operation": "getAttachment",
-        "messageId": "={{$json.messageId}}",
-        "attachmentId": "={{$json.attachmentId}}"
-      },
-      "id": "4",
-      "name": "Download Attachment",
-      "type": "n8n-nodes-base.gmail",
-      "typeVersion": 2,
-      "position": [
-        420,
-        0
-      ],
-      "credentials": {
-        "gmailOAuth2": {
-          "name": "Gmail OAuth2 Account"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "functionCode": "// Merge attachment binary into the original metadata\nreturn items.map(item => {\n  const { json, binary } = item\n  const attachmentName = json.attachmentName || 'invoice.pdf'\n  return {\n    json: {\n      messageId: json.messageId,\n      threadId: json.threadId,\n      snippet: json.snippet,\n      attachmentName,\n      mimeType: json.mimeType || 'application/pdf',\n      invoiceSource: json.invoiceSource,\n      invoiceDate: json.invoiceDate\n    },\n    binary: {\n      data: {\n        data: binary.data.data,\n        fileName: attachmentName,\n        mimeType: json.mimeType || 'application/pdf'\n      }\n    }\n  }\n})"
-      },
-      "id": "5",
-      "name": "Prepare Binary",
-      "type": "n8n-nodes-base.function",
-      "typeVersion": 2,
-      "position": [
-        680,
-        0
-      ]
-    },
-    {
-      "parameters": {
-        "url": "={{$env.INVOICE_PARSER_ENDPOINT}}",
-        "options": {},
-        "allowUnauthorizedCerts": false,
-        "jsonParameters": true,
-        "responseFormat": "json",
-        "bodyParametersJson": "={\n  \"fileName\": $json.attachmentName,\n  \"mimeType\": $json.mimeType,\n  \"fileData\": $binary.data.data,\n  \"source\": $json.invoiceSource,\n  \"emailSnippet\": $json.snippet,\n  \"emailDate\": $json.invoiceDate\n}"
-      },
-      "id": "6",
-      "name": "Extract Invoice Data",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 3,
-      "position": [
-        940,
-        0
-      ],
-      "credentials": {
-        "httpBasicAuth": {
-          "name": "Invoice Parser Credentials"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "functionCode": "const now = new Date().toISOString()\nreturn items.map(item => {\n  const payload = item.json || {}\n  return {\n    json: {\n      fields: {\n        createdAt: { timestampValue: now },\n        updatedAt: { timestampValue: now },\n        emailMessageId: { stringValue: payload.messageId },\n        threadId: { stringValue: payload.threadId || '' },\n        source: { stringValue: payload.source || '' },\n        issueDate: { stringValue: payload.invoiceDate || '' },\n        total: payload.total ? { doubleValue: payload.total } : { nullValue: null },\n        currency: payload.currency ? { stringValue: payload.currency } : { nullValue: null },\n        supplierTaxId: payload.supplierTaxId ? { stringValue: payload.supplierTaxId } : { nullValue: null },\n        customerTaxId: payload.customerTaxId ? { stringValue: payload.customerTaxId } : { nullValue: null },\n        lineItems: payload.lineItems ? { arrayValue: { values: payload.lineItems.map(item => ({ mapValue: { fields: {\n          description: item.description ? { stringValue: item.description } : { nullValue: null },\n          quantity: item.quantity !== undefined ? { doubleValue: item.quantity } : { nullValue: null },\n          unitPrice: item.unitPrice !== undefined ? { doubleValue: item.unitPrice } : { nullValue: null },\n          total: item.total !== undefined ? { doubleValue: item.total } : { nullValue: null }\n        } } })) } } : { arrayValue: { values: [] } },\n        rawParserResponse: { stringValue: JSON.stringify(payload) }\n      }\n    }\n  }\n})"
-      },
-      "id": "7",
-      "name": "Shape Firestore Payload",
-      "type": "n8n-nodes-base.function",
-      "typeVersion": 2,
-      "position": [
-        1200,
-        0
-      ]
-    },
-    {
-      "parameters": {
-        "url": "={{$env.FIRESTORE_BASE_URL}}/documents/invoices",
-        "method": "POST",
-        "authentication": "oAuth2",
-        "jsonParameters": true,
-        "responseFormat": "json",
-        "bodyParametersJson": "={{$json}}"
-      },
-      "id": "8",
-      "name": "Upload to Firestore",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 3,
-      "position": [
-        1460,
-        0
-      ],
-      "credentials": {
-        "googleOAuth2Api": {
-          "name": "Firebase Service Account"
-        }
-      }
-    }
-  ],
-  "connections": {
-    "Cron": {
-      "main": [
-        [
-          {
-            "node": "Fetch Gmail",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Fetch Gmail": {
-      "main": [
-        [
-          {
-            "node": "Filter Attachments",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Filter Attachments": {
-      "main": [
-        [
-          {
-            "node": "Download Attachment",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Download Attachment": {
-      "main": [
-        [
-          {
-            "node": "Prepare Binary",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Prepare Binary": {
-      "main": [
-        [
-          {
-            "node": "Extract Invoice Data",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Extract Invoice Data": {
-      "main": [
-        [
-          {
-            "node": "Shape Firestore Payload",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Shape Firestore Payload": {
-      "main": [
-        [
-          {
-            "node": "Upload to Firestore",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    }
-  },
-  "pinData": {},
-  "settings": {
-    "executionOrder": "v1"
-  },
-  "staticData": null,
-  "tags": [
-    "gmail",
-    "invoices",
-    "firebase"
-  ]
+    "staticData": null,
+    "tags": [
+        "gmail",
+        "invoices",
+        "firebase"
+    ]
 }
