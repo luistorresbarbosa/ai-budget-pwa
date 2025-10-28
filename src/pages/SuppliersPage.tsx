@@ -295,7 +295,8 @@ export default function SuppliersPage() {
             : 'Adicione fornecedores para acelerar o mapeamento automático de despesas.'
         }
       >
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <motion.div layout className="grid gap-6 lg:grid-cols-[2fr_1fr]">
+          <form onSubmit={handleSubmit} className="space-y-4">
           <label className="block space-y-2 text-sm text-slate-600">
             <span className="text-xs uppercase tracking-wide text-slate-400">Nome do fornecedor</span>
             <input
@@ -391,9 +392,9 @@ export default function SuppliersPage() {
               </button>
             )}
           </div>
-        </form>
+          </form>
 
-        <div className="flex flex-col justify-between gap-6 rounded-3xl border border-slate-200 bg-slate-50/60 p-5 shadow-sm">
+          <div className="flex flex-col justify-between gap-6 rounded-3xl border border-slate-200 bg-slate-50/60 p-5 shadow-sm">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Resumo</p>
             <h3 className="text-lg font-semibold text-slate-900">Catálogo ativo</h3>
@@ -405,9 +406,9 @@ export default function SuppliersPage() {
           <p className="text-xs text-slate-500">
             Use referências manuais para consolidar nomes alternativos no fornecedor correto.
           </p>
-        </div>
-      </motion.div>
-
+          </div>
+        </motion.div>
+      </Modal>
       <motion.div layout className="space-y-4">
         <header className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
