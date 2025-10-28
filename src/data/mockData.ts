@@ -28,6 +28,7 @@ export const mockExpenses: Expense[] = [
     dueDate: new Date().toISOString(),
     recurrence: 'mensal',
     fixed: true,
+    type: 'fixa',
     status: 'planeado',
     supplierId: 'sup-1'
   },
@@ -41,6 +42,7 @@ export const mockExpenses: Expense[] = [
     dueDate: new Date().toISOString(),
     recurrence: 'mensal',
     fixed: true,
+    type: 'fixa',
     status: 'pago',
     supplierId: 'sup-2',
     paidAt: new Date().toISOString()
