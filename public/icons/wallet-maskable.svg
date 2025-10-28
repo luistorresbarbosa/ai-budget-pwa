@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Ícone maskable de carteira">
+  <defs>
+    <linearGradient id="maskBg" x1="96" y1="96" x2="416" y2="416" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0ea5e9" />
+      <stop offset="0.55" stop-color="#0369a1" />
+      <stop offset="1" stop-color="#0f172a" />
+    </linearGradient>
+    <linearGradient id="maskWallet" x1="176" y1="188" x2="396" y2="396" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#facc15" />
+      <stop offset="0.18" stop-color="#f59e0b" />
+      <stop offset="0.52" stop-color="#d97706" />
+      <stop offset="1" stop-color="#92400e" />
+    </linearGradient>
+    <linearGradient id="maskEdge" x1="164" y1="192" x2="392" y2="384" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff7ed" stop-opacity="0.85" />
+      <stop offset="1" stop-color="#7c2d12" stop-opacity="0.4" />
+    </linearGradient>
+    <linearGradient id="maskCash" x1="182" y1="160" x2="360" y2="308" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#bbf7d0" />
+      <stop offset="1" stop-color="#10b981" />
+    </linearGradient>
+    <radialGradient id="maskCoin" cx="50%" cy="35%" r="0.8">
+      <stop offset="0" stop-color="#fef3c7" />
+      <stop offset="0.68" stop-color="#facc15" />
+      <stop offset="1" stop-color="#b45309" />
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" rx="180" fill="url(#maskBg)" />
+  <g opacity="0.18">
+    <path d="M160 152h224a56 56 0 0 1 56 56v152a92 92 0 0 1-92 92H216a92 92 0 0 1-92-92V152Z" fill="#38bdf8" />
+  </g>
+  <g transform="rotate(-5 256 296)">
+    <path d="M164 196h200a60 60 0 0 1 60 60v102a90 90 0 0 1-90 90H214a90 90 0 0 1-90-90V236a40 40 0 0 1 40-40Z" fill="url(#maskWallet)" />
+    <path d="M164 212h208a44 44 0 0 1 44 44v82a90 90 0 0 1-90 90H216a90 90 0 0 1-90-90v-84a44 44 0 0 1 44-44Z" fill="none" stroke="url(#maskEdge)" stroke-width="20" stroke-linejoin="round" />
+    <path d="M184 174h172a40 40 0 0 1 40 40v30H224a44 44 0 0 1-44-44v-26Z" fill="url(#maskCash)" opacity="0.96" />
+    <path d="M324 250h70a38 38 0 0 1 38 38v24a38 38 0 0 1-38 38h-70a38 38 0 0 1-38-38v-24a38 38 0 0 1 38-38Z" fill="#0f172a" opacity="0.45" />
+    <path d="M312 238h70a38 38 0 0 1 38 38v24a38 38 0 0 1-38 38h-70a38 38 0 0 1-38-38v-24a38 38 0 0 1 38-38Z" fill="#1e293b" />
+    <circle cx="348" cy="289" r="20" fill="#fbbf24" />
+    <circle cx="348" cy="289" r="11" fill="#fde68a" />
+  </g>
+  <g transform="translate(22 -22) rotate(-10 384 170)">
+    <circle cx="360" cy="186" r="34" fill="url(#maskCoin)" />
+    <circle cx="316" cy="164" r="26" fill="url(#maskCoin)" opacity="0.75" />
+    <circle cx="384" cy="152" r="20" fill="url(#maskCoin)" opacity="0.85" />
+  </g>
+</svg>

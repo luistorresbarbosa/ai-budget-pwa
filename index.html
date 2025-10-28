@@ -8,6 +8,27 @@
     <title>Gestor de Despesas</title>
   </head>
   <body>
+    <div id="initial-loader" class="initial-loader" aria-hidden="true">
+      <div class="initial-loader__backdrop">
+        <div class="initial-loader__wallet" role="img" aria-label="Carteira a encher">
+          <div class="wallet__shadow"></div>
+          <div class="wallet__body">
+            <div class="wallet__flap"></div>
+            <div class="wallet__cash"></div>
+            <div class="wallet__glow"></div>
+          </div>
+          <div class="wallet__coins">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+        </div>
+        <div class="initial-loader__progress">
+          <div class="initial-loader__progress-fill"></div>
+        </div>
+        <p class="initial-loader__label">A preparar a tua carteira…</p>
+      </div>
+    </div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
