@@ -10,9 +10,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/wallet.svg', 'icons/wallet-maskable.svg'],
       manifest: {
-        name: 'Gestor de Despesas',
-        short_name: 'Despesas',
-        description: 'Gestão prática de despesas pessoais e transferências.',
+        name: 'Gestão de Orçamento',
+        short_name: 'Orçamento',
+        description: 'Gestão prática de orçamento pessoal e transferências.',
         theme_color: '#0f172a',
         background_color: '#f8fafc',
         display: 'standalone',

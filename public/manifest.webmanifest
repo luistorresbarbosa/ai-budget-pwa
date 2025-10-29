@@ -1,11 +1,11 @@
 {
-  "name": "Gestor de Despesas",
-  "short_name": "Despesas",
+  "name": "Gestão de Orçamento",
+  "short_name": "Orçamento",
   "start_url": ".",
   "display": "standalone",
   "background_color": "#f8fafc",
   "theme_color": "#0f172a",
-  "description": "Gestão prática de despesas pessoais e transferências.",
+  "description": "Gestão prática de orçamento pessoal e transferências.",
   "icons": [
     {
       "src": "/icons/icon-192.png",
