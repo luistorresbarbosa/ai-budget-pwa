@@ -707,86 +707,26 @@ function ExpensesPage() {
     );
   }, [tabExpenses]);
 
-  const topFixedExpenses = useMemo<TopFixedExpensesChartItem[]>(() => {
-    const groups = new Map<
+  const {
+    topFixedExpenseItems,
+    topVariableExpenseItems,
+    categoryTotalItems
+  } = useMemo<
+    {
+      topFixedExpenseItems: TopFixedExpensesChartItem[];
+      topVariableExpenseItems: TopVariableExpensesChartItem[];
+      categoryTotalItems: CategoryTotalsChartItem[];
+    }
+  >(() => {
+    const fixedGroups = new Map<
       string,
       { label: string; total: number; currency: string; count: number }
     >();
-
-    chartExpenses.forEach((expense) => {
-      if (resolveExpenseType(expense) !== 'fixa') {
-        return;
-      }
-      const normalizedDescription = expense.description ? expense.description.trim() : '';
-      const label = normalizedDescription || 'Despesa fixa';
-      const key = `${label}-${expense.currency}`;
-      const existing = groups.get(key);
-      if (existing) {
-        existing.total += expense.amount;
-        existing.count += 1;
-      } else {
-        groups.set(key, {
-          label,
-          total: expense.amount,
-          currency: expense.currency,
-          count: 1
-        });
-      }
-    });
-
-    return Array.from(groups.entries())
-      .map(([key, value]) => ({
-        id: key,
-        label: value.label,
-        value: value.total,
-        currency: value.currency,
-        meta: `${value.count} despesa${value.count === 1 ? '' : 's'}`
-      }))
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 10);
-  }, [chartExpenses]);
-
-  const topVariableExpenses = useMemo<TopVariableExpensesChartItem[]>(() => {
-    const groups = new Map<
+    const variableGroups = new Map<
       string,
       { label: string; total: number; currency: string; count: number }
     >();
-
-    chartExpenses.forEach((expense) => {
-      if (resolveExpenseType(expense) !== 'variavel') {
-        return;
-      }
-      const normalizedDescription = expense.description ? expense.description.trim() : '';
-      const label = normalizedDescription || 'Despesa variável';
-      const key = `${label}-${expense.currency}`;
-      const existing = groups.get(key);
-      if (existing) {
-        existing.total += expense.amount;
-        existing.count += 1;
-      } else {
-        groups.set(key, {
-          label,
-          total: expense.amount,
-          currency: expense.currency,
-          count: 1
-        });
-      }
-    });
-
-    return Array.from(groups.entries())
-      .map(([key, value]) => ({
-        id: key,
-        label: value.label,
-        value: value.total,
-        currency: value.currency,
-        meta: `${value.count} despesa${value.count === 1 ? '' : 's'}`
-      }))
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 10);
-  }, [chartExpenses]);
-
-  const categoryTotals = useMemo<CategoryTotalsChartItem[]>(() => {
-    const groups = new Map<
+    const categoryGroups = new Map<
       string,
       {
         id: string;
@@ -798,19 +738,54 @@ function ExpensesPage() {
     >();
 
     chartExpenses.forEach((expense) => {
+      const normalizedDescription = expense.description ? expense.description.trim() : '';
+      const expenseType = resolveExpenseType(expense);
+
+      if (expenseType === 'fixa') {
+        const label = normalizedDescription || 'Despesa fixa';
+        const key = `${label}-${expense.currency}`;
+        const existing = fixedGroups.get(key);
+        if (existing) {
+          existing.total += expense.amount;
+          existing.count += 1;
+        } else {
+          fixedGroups.set(key, {
+            label,
+            total: expense.amount,
+            currency: expense.currency,
+            count: 1
+          });
+        }
+      } else if (expenseType === 'variavel') {
+        const label = normalizedDescription || 'Despesa variável';
+        const key = `${label}-${expense.currency}`;
+        const existing = variableGroups.get(key);
+        if (existing) {
+          existing.total += expense.amount;
+          existing.count += 1;
+        } else {
+          variableGroups.set(key, {
+            label,
+            total: expense.amount,
+            currency: expense.currency,
+            count: 1
+          });
+        }
+      }
+
       const normalizedCategory = expense.category ? expense.category.trim() : '';
-      const label = normalizedCategory || 'Sem categoria';
-      const key = label.toLowerCase() || 'sem-categoria';
-      const existing = groups.get(key);
-      if (existing) {
-        existing.total += expense.amount;
-        existing.count += 1;
-        existing.currencyBreakdown[expense.currency] =
-          (existing.currencyBreakdown[expense.currency] ?? 0) + expense.amount;
+      const categoryLabel = normalizedCategory || 'Sem categoria';
+      const categoryKey = categoryLabel.toLowerCase() || 'sem-categoria';
+      const categoryExisting = categoryGroups.get(categoryKey);
+      if (categoryExisting) {
+        categoryExisting.total += expense.amount;
+        categoryExisting.count += 1;
+        categoryExisting.currencyBreakdown[expense.currency] =
+          (categoryExisting.currencyBreakdown[expense.currency] ?? 0) + expense.amount;
       } else {
-        groups.set(key, {
-          id: key,
-          label,
+        categoryGroups.set(categoryKey, {
+          id: categoryKey,
+          label: categoryLabel,
           total: expense.amount,
           currencyBreakdown: { [expense.currency]: expense.amount },
           count: 1
@@ -818,98 +793,45 @@ function ExpensesPage() {
       }
     });
 
-    return Array.from(groups.values())
-      .map((item) => ({
-        id: item.id,
-        label: item.label,
-        value: item.total,
-        currencyBreakdown: item.currencyBreakdown,
-        meta: `${item.count} despesa${item.count === 1 ? '' : 's'}`
-      }))
-      .sort((a, b) => b.value - a.value);
-  }, [chartExpenses]);
+    const createMeta = (count: number) => `${count} despesa${count === 1 ? '' : 's'}`;
 
-  const topFixedExpenses = useMemo<TopFixedExpensesChartItem[]>(() => {
-    const groups = new Map<
-      string,
-      { label: string; total: number; currency: string; count: number }
-    >();
-
-    chartExpenses.forEach((expense) => {
-      if (resolveExpenseType(expense) !== 'fixa') {
-        return;
-      }
-      const normalizedDescription = expense.description ? expense.description.trim() : '';
-      const label = normalizedDescription || 'Despesa fixa';
-      const key = `${label}-${expense.currency}`;
-      const existing = groups.get(key);
-      if (existing) {
-        existing.total += expense.amount;
-        existing.count += 1;
-      } else {
-        groups.set(key, {
-          label,
-          total: expense.amount,
-          currency: expense.currency,
-          count: 1
-        });
-      }
-    });
-
-    return Array.from(groups.entries())
+    const fixedItems = Array.from(fixedGroups.entries())
       .map(([key, value]) => ({
         id: key,
         label: value.label,
         value: value.total,
         currency: value.currency,
-        meta: `${value.count} despesa${value.count === 1 ? '' : 's'}`
+        meta: createMeta(value.count)
       }))
       .sort((a, b) => b.value - a.value)
       .slice(0, 10);
-  }, [chartExpenses]);
 
-  const categoryTotals = useMemo<CategoryTotalsChartItem[]>(() => {
-    const groups = new Map<
-      string,
-      {
-        id: string;
-        label: string;
-        total: number;
-        currencyBreakdown: Record<string, number>;
-        count: number;
-      }
-    >();
+    const variableItems = Array.from(variableGroups.entries())
+      .map(([key, value]) => ({
+        id: key,
+        label: value.label,
+        value: value.total,
+        currency: value.currency,
+        meta: createMeta(value.count)
+      }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 10);
 
-    chartExpenses.forEach((expense) => {
-      const normalizedCategory = expense.category ? expense.category.trim() : '';
-      const label = normalizedCategory || 'Sem categoria';
-      const key = label.toLowerCase() || 'sem-categoria';
-      const existing = groups.get(key);
-      if (existing) {
-        existing.total += expense.amount;
-        existing.count += 1;
-        existing.currencyBreakdown[expense.currency] =
-          (existing.currencyBreakdown[expense.currency] ?? 0) + expense.amount;
-      } else {
-        groups.set(key, {
-          id: key,
-          label,
-          total: expense.amount,
-          currencyBreakdown: { [expense.currency]: expense.amount },
-          count: 1
-        });
-      }
-    });
-
-    return Array.from(groups.values())
+    const categoryItems = Array.from(categoryGroups.values())
       .map((item) => ({
         id: item.id,
         label: item.label,
         value: item.total,
         currencyBreakdown: item.currencyBreakdown,
-        meta: `${item.count} despesa${item.count === 1 ? '' : 's'}`
+        meta: createMeta(item.count)
       }))
       .sort((a, b) => b.value - a.value);
+
+    return {
+      topFixedExpenseItems: fixedItems,
+      topVariableExpenseItems: variableItems,
+      categoryTotalItems: categoryItems
+    };
   }, [chartExpenses]);
 
   const { perExpenseInstallments, installmentSummaries } = useMemo(() => {
@@ -1166,7 +1088,7 @@ function ExpensesPage() {
         <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
           <div>
             <TopFixedExpensesChart
-              items={topFixedExpenses}
+              items={topFixedExpenseItems}
               formatCurrency={formatCurrency}
               description={`Despesas recorrentes com maior impacto ${chartPeriodSummaryText}.`}
               emptyMessage={`Sem despesas fixas ${chartPeriodEmptyText}.`}
@@ -1174,7 +1096,7 @@ function ExpensesPage() {
           </div>
           <div>
             <TopVariableExpensesChart
-              items={topVariableExpenses}
+              items={topVariableExpenseItems}
               formatCurrency={formatCurrency}
               description={`Despesas variáveis com maior impacto ${chartPeriodSummaryText}.`}
               emptyMessage={`Sem despesas variáveis ${chartPeriodEmptyText}.`}
@@ -1182,7 +1104,7 @@ function ExpensesPage() {
           </div>
           <div className="lg:col-span-2 xl:col-span-3">
             <CategoryTotalsBarChart
-              items={categoryTotals}
+              items={categoryTotalItems}
               formatCurrency={formatCurrency}
               description={`Categorias com maior volume de despesas ${chartPeriodSummaryText}.`}
               emptyMessage={`Ainda não existem despesas ${chartPeriodEmptyText} para calcular os totais por categoria.`}
