@@ -91,7 +91,7 @@ export default function SuppliersPage() {
   const [error, setError] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  const { supplierListItems, canonicalCount } = useMemo(() => {
+  const supplierListItems = useMemo(() => {
     const canonicalSuppliers = suppliers
       .filter((supplier) => !supplier.referenceToId)
       .slice()
@@ -130,7 +130,7 @@ export default function SuppliersPage() {
       isOrphanReference: true
     }));
 
-    return { supplierListItems: [...canonicalItems, ...orphanItems], canonicalCount: canonicalSuppliers.length };
+    return [...canonicalItems, ...orphanItems];
   }, [suppliers]);
 
   const referenceTargets = useMemo(() => {
@@ -388,11 +388,7 @@ export default function SuppliersPage() {
             : 'Adicione fornecedores para acelerar o mapeamento automático de despesas.'
         }
       >
-        <motion.div
-          layout
-          className="grid gap-6 lg:grid-cols-[minmax(0,1.75fr)_minmax(0,1fr)] lg:items-start lg:gap-8"
-        >
-          <form onSubmit={handleSubmit} className="flex flex-col gap-4 lg:gap-6">
+        <motion.form onSubmit={handleSubmit} layout className="flex flex-col gap-4 lg:gap-6">
           <label className="block space-y-2 text-sm text-slate-600">
             <span className="text-xs uppercase tracking-wide text-slate-400">Nome do fornecedor</span>
             <input
@@ -436,7 +432,7 @@ export default function SuppliersPage() {
                     ))}
                   </ul>
                 )}
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-3">
                   <input
                     value={formState.contactEmailInput}
                     onChange={(event) => setFormState((state) => ({ ...state, contactEmailInput: event.target.value }))}
@@ -462,7 +458,7 @@ export default function SuppliersPage() {
                   <button
                     type="button"
                     onClick={() => handleAddContactEmails(formState.contactEmailInput)}
-                    className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-slate-100 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600 transition hover:border-slate-300 hover:text-slate-900 sm:w-auto"
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-slate-100 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600 transition hover:border-slate-300 hover:text-slate-900 sm:w-auto sm:justify-self-start sm:px-4 sm:py-2.5"
                   >
                     Adicionar
                   </button>
@@ -545,22 +541,7 @@ export default function SuppliersPage() {
               </button>
             )}
           </div>
-          </form>
-
-          <div className="flex flex-col justify-between gap-6 rounded-3xl border border-slate-200 bg-slate-50/60 p-5 shadow-sm lg:h-full lg:p-6">
-            <div className="space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Resumo</p>
-              <h3 className="text-lg font-semibold text-slate-900">Catálogo ativo</h3>
-              <p className="text-3xl font-semibold text-slate-900">{canonicalCount}</p>
-              <p className="text-xs uppercase tracking-wide text-slate-400">
-                {canonicalCount === 1 ? 'Fornecedor principal' : 'Fornecedores principais'}
-              </p>
-            </div>
-            <p className="text-xs text-slate-500">
-              Use referências manuais para consolidar nomes alternativos no fornecedor correto.
-            </p>
-          </div>
-        </motion.div>
+        </motion.form>
       </Modal>
       <motion.div layout className="space-y-4">
         <header className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
