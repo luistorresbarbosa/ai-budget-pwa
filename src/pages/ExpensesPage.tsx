@@ -34,6 +34,27 @@ const statusLabels: Record<Expense['status'], string> = {
 
 type StatusFilter = 'todas' | Expense['status'];
 
+type ChartPeriod = 'mensal' | 'anual' | 'total';
+
+const CHART_PERIOD_OPTIONS: { value: ChartPeriod; label: string }[] = [
+  { value: 'mensal', label: 'Mensal' },
+  { value: 'anual', label: 'Anual' },
+  { value: 'total', label: 'Total' }
+];
+
+const CHART_PERIOD_SUMMARY: Record<ChartPeriod, string> = {
+  mensal: 'no mês actual',
+  anual: 'no ano em curso',
+  total: 'no histórico completo'
+};
+
+const CHART_PERIOD_EMPTY: Record<ChartPeriod, string> = {
+  mensal: 'neste mês',
+  anual: 'neste ano',
+  total: 'no histórico'
+};
+
+
 const typeLabels: Record<Expense['type'], string> = {
   fixa: 'Despesa fixa',
   variavel: 'Despesa variável'
@@ -139,6 +160,34 @@ function formatCurrency(amount: number, currency: string): string {
   }).format(amount);
 }
 
+function filterExpensesByPeriod(
+  expenses: Expense[],
+  period: ChartPeriod,
+  referenceDate: Date
+): Expense[] {
+  if (period === 'total') {
+    return expenses;
+  }
+
+  const currentYear = referenceDate.getUTCFullYear();
+  const currentMonth = referenceDate.getUTCMonth();
+
+  return expenses.filter((expense) => {
+    const dueDate = new Date(expense.dueDate);
+    if (Number.isNaN(dueDate.getTime())) {
+      return false;
+    }
+
+    if (period === 'mensal') {
+      return (
+        dueDate.getUTCFullYear() === currentYear && dueDate.getUTCMonth() === currentMonth
+      );
+    }
+
+    return dueDate.getUTCFullYear() === currentYear;
+  });
+}
+
 const toastStyles: Record<DocumentUploadFeedback['type'], string> = {
   success: 'border-emerald-200 bg-emerald-50 text-emerald-700',
   error: 'border-rose-200 bg-rose-50 text-rose-700',
@@ -163,6 +212,7 @@ function ExpensesPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [accountFilter, setAccountFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('todas');
+  const [chartPeriod, setChartPeriod] = useState<ChartPeriod>('mensal');
   const [pageSize, setPageSize] = useState(10);
   const [currentPage, setCurrentPage] = useState(1);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -498,6 +548,14 @@ function ExpensesPage() {
     [expenses, accountFilter]
   );
 
+  const chartExpenses = useMemo(() => {
+    const referenceDate = new Date();
+    return filterExpensesByPeriod(tabExpenses, chartPeriod, referenceDate);
+  }, [tabExpenses, chartPeriod]);
+
+  const chartPeriodSummaryText = CHART_PERIOD_SUMMARY[chartPeriod];
+  const chartPeriodEmptyText = CHART_PERIOD_EMPTY[chartPeriod];
+
   const monthlyProjections = useMemo<MonthlyProjection[]>(() => {
     if (tabExpenses.length === 0) {
       return [];
@@ -507,7 +565,14 @@ function ExpensesPage() {
     const startOfCurrentMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
     const accumulator = new Map<
       string,
-      { label: string; totals: Record<string, number>; typeTotals: Record<Expense['type'], number> }
+      {
+        label: string;
+        totals: Record<string, number>;
+        expenses: Record<
+          string,
+          { description: string; amount: number; currency: string }
+        >;
+      }
     >();
 
     tabExpenses.forEach((expense) => {
@@ -525,11 +590,23 @@ function ExpensesPage() {
       const label = due.toLocaleDateString('pt-PT', { month: 'short', year: 'numeric' });
       const existing = accumulator.get(key);
       const totals = existing?.totals ?? {};
-      const typeTotals = existing?.typeTotals ?? { fixa: 0, variavel: 0 };
-      const expenseType = resolveExpenseType(expense);
+      const expensesBreakdown = existing?.expenses ?? {};
       totals[expense.currency] = (totals[expense.currency] ?? 0) + expense.amount;
-      typeTotals[expenseType] = (typeTotals[expenseType] ?? 0) + expense.amount;
-      accumulator.set(key, { label, totals, typeTotals });
+
+      const recurringKey = expense.recurringExpenseId ?? expense.id;
+      const description = expense.description?.trim() || 'Despesa';
+      const breakdownEntry = expensesBreakdown[recurringKey];
+      if (breakdownEntry) {
+        breakdownEntry.amount += expense.amount;
+      } else {
+        expensesBreakdown[recurringKey] = {
+          description,
+          amount: expense.amount,
+          currency: expense.currency
+        };
+      }
+
+      accumulator.set(key, { label, totals, expenses: expensesBreakdown });
     });
 
     return Array.from(accumulator.entries())
@@ -538,7 +615,7 @@ function ExpensesPage() {
         label: value.label,
         totals: value.totals,
         totalAmount: Object.values(value.totals).reduce((sum, amount) => sum + amount, 0),
-        typeTotals: value.typeTotals
+        expenses: value.expenses
       }))
       .sort((a, b) => (a.key < b.key ? -1 : 1))
       .slice(0, 12);
@@ -556,6 +633,12 @@ function ExpensesPage() {
   const currencyOrder = useMemo(() => {
     return Object.keys(projectionTotalsByCurrency).sort();
   }, [projectionTotalsByCurrency]);
+
+  const projectionDisplayCurrency =
+    currencyOrder[0] ??
+    (monthlyProjections[0] ? Object.keys(monthlyProjections[0].totals)[0] : undefined) ??
+    expenses[0]?.currency ??
+    'EUR';
 
   const projectionTotalsSummary = useMemo(() => {
     const entries = Object.entries(projectionTotalsByCurrency);
@@ -611,7 +694,7 @@ function ExpensesPage() {
       { label: string; total: number; currency: string; count: number }
     >();
 
-    tabExpenses.forEach((expense) => {
+    chartExpenses.forEach((expense) => {
       if (resolveExpenseType(expense) !== 'fixa') {
         return;
       }
@@ -642,7 +725,7 @@ function ExpensesPage() {
       }))
       .sort((a, b) => b.value - a.value)
       .slice(0, 10);
-  }, [tabExpenses]);
+  }, [chartExpenses]);
 
   const categoryTotals = useMemo<CategoryTotalsChartItem[]>(() => {
     const groups = new Map<
@@ -656,7 +739,7 @@ function ExpensesPage() {
       }
     >();
 
-    tabExpenses.forEach((expense) => {
+    chartExpenses.forEach((expense) => {
       const normalizedCategory = expense.category ? expense.category.trim() : '';
       const label = normalizedCategory || 'Sem categoria';
       const key = label.toLowerCase() || 'sem-categoria';
@@ -686,7 +769,7 @@ function ExpensesPage() {
         meta: `${item.count} despesa${item.count === 1 ? '' : 's'}`
       }))
       .sort((a, b) => b.value - a.value);
-  }, [tabExpenses]);
+  }, [chartExpenses]);
 
   const { perExpenseInstallments, installmentSummaries } = useMemo(() => {
     const groups = new Map<string, Expense[]>();
@@ -909,9 +992,50 @@ function ExpensesPage() {
         )}
       </AnimatePresence>
 
-      <section className="grid gap-4 md:grid-cols-2">
-        <TopFixedExpensesChart items={topFixedExpenses} formatCurrency={formatCurrency} />
-        <CategoryTotalsBarChart items={categoryTotals} formatCurrency={formatCurrency} />
+      <section className="space-y-4">
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div className="space-y-1">
+            <h2 className="text-xl font-semibold text-slate-900">Insights por período</h2>
+            <p className="text-sm text-slate-500">
+              Compare totais de despesas {chartPeriodSummaryText}.
+            </p>
+          </div>
+          <div className="inline-flex items-center gap-1 rounded-2xl border border-slate-200 bg-white p-1">
+            {CHART_PERIOD_OPTIONS.map((option) => {
+              const isActive = option.value === chartPeriod;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setChartPeriod(option.value)}
+                  className={`rounded-2xl px-3 py-1.5 text-sm font-medium transition ${
+                    isActive
+                      ? 'bg-slate-900 text-white shadow-sm'
+                      : 'text-slate-600 hover:bg-slate-100'
+                  }`}
+                  aria-pressed={isActive}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <TopFixedExpensesChart
+            items={topFixedExpenses}
+            formatCurrency={formatCurrency}
+            description={`Despesas recorrentes com maior impacto ${chartPeriodSummaryText}.`}
+            emptyMessage={`Sem despesas fixas ${chartPeriodEmptyText}.`}
+          />
+          <CategoryTotalsBarChart
+            items={categoryTotals}
+            formatCurrency={formatCurrency}
+            description={`Categorias com maior volume de despesas ${chartPeriodSummaryText}.`}
+            emptyMessage={`Ainda não existem despesas ${chartPeriodEmptyText} para calcular os totais por categoria.`}
+          />
+        </div>
       </section>
 
       {monthlyProjections.length > 0 ? (
@@ -933,8 +1057,8 @@ function ExpensesPage() {
           <div className="mt-6 grid gap-6 lg:grid-cols-[2fr_1fr]">
             <MonthlyProjectionChart
               data={monthlyProjections}
-              currencyOrder={currencyOrder}
               formatCurrency={formatCurrency}
+              displayCurrency={projectionDisplayCurrency}
             />
 
             <div className="space-y-4">

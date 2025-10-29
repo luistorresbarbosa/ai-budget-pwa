@@ -7,15 +7,24 @@ export interface TopFixedExpensesChartItem extends HorizontalBarChartDatum {
 interface TopFixedExpensesChartProps {
   items: TopFixedExpensesChartItem[];
   formatCurrency(amount: number, currency: string): string;
+  description?: string;
+  emptyMessage?: string;
 }
 
-export function TopFixedExpensesChart({ items, formatCurrency }: TopFixedExpensesChartProps) {
+export function TopFixedExpensesChart({
+  items,
+  formatCurrency,
+  description,
+  emptyMessage
+}: TopFixedExpensesChartProps) {
   return (
     <HorizontalBarChart
       title="Top 10 despesas fixas"
-      description="Despesas recorrentes com maior impacto durante o período seleccionado."
+      description={
+        description ?? 'Despesas recorrentes com maior impacto durante o período seleccionado.'
+      }
       data={items}
-      emptyMessage="Sem despesas fixas registadas neste separador."
+      emptyMessage={emptyMessage ?? 'Sem despesas fixas registadas neste separador.'}
       formatValue={(datum) => formatCurrency(datum.value, (datum as TopFixedExpensesChartItem).currency)}
     />
   );

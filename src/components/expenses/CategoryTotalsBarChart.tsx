@@ -7,15 +7,24 @@ export interface CategoryTotalsChartItem extends HorizontalBarChartDatum {
 interface CategoryTotalsBarChartProps {
   items: CategoryTotalsChartItem[];
   formatCurrency(amount: number, currency: string): string;
+  description?: string;
+  emptyMessage?: string;
 }
 
-export function CategoryTotalsBarChart({ items, formatCurrency }: CategoryTotalsBarChartProps) {
+export function CategoryTotalsBarChart({
+  items,
+  formatCurrency,
+  description,
+  emptyMessage
+}: CategoryTotalsBarChartProps) {
   return (
     <HorizontalBarChart
       title="Totais por categoria"
-      description="Categorias com maior volume de despesas no separador activo."
+      description={description ?? 'Categorias com maior volume de despesas no separador activo.'}
       data={items}
-      emptyMessage="Ainda não existem despesas para calcular os totais por categoria."
+      emptyMessage={
+        emptyMessage ?? 'Ainda não existem despesas para calcular os totais por categoria.'
+      }
       formatValue={(datum) => {
         const breakdown = (datum as CategoryTotalsChartItem).currencyBreakdown;
         const entries = Object.entries(breakdown);

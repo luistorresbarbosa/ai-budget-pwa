@@ -3,8 +3,8 @@ import type { MonthlyProjection } from '../../types/expenses';
 
 interface MonthlyProjectionChartProps {
   data: MonthlyProjection[];
-  currencyOrder: string[];
   formatCurrency(amount: number, currency: string): string;
+  displayCurrency: string;
 }
 
 const COLOR_PALETTE = [
@@ -15,24 +15,55 @@ const COLOR_PALETTE = [
   '#7c3aed',
   '#ef4444',
   '#14b8a6',
-  '#f97316'
+  '#f97316',
+  '#0ea5e9',
+  '#facc15'
 ];
 
 export function MonthlyProjectionChart({
   data,
-  currencyOrder,
-  formatCurrency
+  formatCurrency,
+  displayCurrency
 }: MonthlyProjectionChartProps) {
   const maxTotal = useMemo(() => {
     return data.reduce((max, month) => Math.max(max, month.totalAmount), 0);
   }, [data]);
 
-  const colorByCurrency = useMemo(() => {
-    return currencyOrder.reduce<Record<string, string>>((acc, currency, index) => {
-      acc[currency] = COLOR_PALETTE[index % COLOR_PALETTE.length];
+  const expenseSummaries = useMemo(() => {
+    const summary = new Map<
+      string,
+      { description: string; currency: string; total: number }
+    >();
+
+    data.forEach((month) => {
+      Object.entries(month.expenses).forEach(([expenseKey, expense]) => {
+        const existing = summary.get(expenseKey);
+        if (existing) {
+          existing.total += expense.amount;
+        } else {
+          summary.set(expenseKey, {
+            description: expense.description,
+            currency: expense.currency,
+            total: expense.amount
+          });
+        }
+      });
+    });
+
+    return Array.from(summary.entries()).sort((a, b) => b[1].total - a[1].total);
+  }, [data]);
+
+  const expenseOrder = useMemo(
+    () => expenseSummaries.map(([expenseKey]) => expenseKey),
+    [expenseSummaries]
+  );
+
+  const colorByExpense = useMemo(() => {
+    return expenseOrder.reduce<Record<string, string>>((acc, expenseKey, index) => {
+      acc[expenseKey] = COLOR_PALETTE[index % COLOR_PALETTE.length];
       return acc;
     }, {});
-  }, [currencyOrder]);
+  }, [expenseOrder]);
 
   const chartDimensions = useMemo(() => {
     const BAR_WIDTH = 48;
@@ -101,7 +132,7 @@ export function MonthlyProjectionChart({
                     textAnchor="end"
                     className="text-[10px] font-medium fill-slate-400"
                   >
-                    {formatCurrency(tick, currencyOrder[0] ?? 'EUR')}
+                    {formatCurrency(tick, displayCurrency)}
                   </text>
                 </g>
               );
@@ -114,8 +145,9 @@ export function MonthlyProjectionChart({
 
               return (
                 <g key={month.key} transform={`translate(${baseX}, 0)`}>
-                  {currencyOrder.map((currency) => {
-                    const amount = month.totals[currency] ?? 0;
+                  {expenseOrder.map((expenseKey) => {
+                    const expense = month.expenses[expenseKey];
+                    const amount = expense?.amount ?? 0;
                     if (amount <= 0 || maxTotal === 0) {
                       return null;
                     }
@@ -127,16 +159,17 @@ export function MonthlyProjectionChart({
 
                     return (
                       <rect
-                        key={currency}
+                        key={expenseKey}
                         x={0}
                         y={y}
                         width={barWidth}
                         height={rectHeight}
                         rx={8}
-                        fill={colorByCurrency[currency]}
+                        fill={colorByExpense[expenseKey]}
                       >
                         <title>
-                          {month.label}: {formatCurrency(amount, currency)}
+                          {month.label}: {expense.description} ·{' '}
+                          {formatCurrency(amount, expense.currency)}
                         </title>
                       </rect>
                     );
@@ -156,8 +189,11 @@ export function MonthlyProjectionChart({
                       textAnchor="middle"
                       className="text-xs font-semibold fill-slate-900"
                     >
-                      {currencyOrder.length === 1
-                        ? formatCurrency(month.totals[currencyOrder[0]] ?? 0, currencyOrder[0])
+                      {Object.keys(month.totals).length === 1
+                        ? (() => {
+                            const currency = Object.keys(month.totals)[0];
+                            return formatCurrency(month.totals[currency] ?? 0, currency);
+                          })()
                         : month.totalAmount.toLocaleString('pt-PT', {
                             maximumFractionDigits: 0
                           })}
@@ -170,29 +206,32 @@ export function MonthlyProjectionChart({
         </svg>
       </div>
 
-      {currencyOrder.length > 0 && (
+      {expenseSummaries.length > 0 && (
         <div className="flex flex-wrap items-center gap-4 text-xs text-slate-500">
-          {currencyOrder.map((currency) => (
-            <span key={currency} className="inline-flex items-center gap-2">
+          {expenseSummaries.map(([expenseKey, info]) => (
+            <span key={expenseKey} className="inline-flex items-center gap-2">
               <span
-                className="h-2 w-2 rounded-full"
-                style={{ backgroundColor: colorByCurrency[currency] }}
+                className="h-2.5 w-2.5 rounded-full"
+                style={{ backgroundColor: colorByExpense[expenseKey] }}
                 aria-hidden="true"
               />
-              <span className="font-medium text-slate-700">{currency}</span>
+              <span className="font-medium text-slate-700">
+                {info.description}
+              </span>
+              <span className="text-slate-400">· {info.currency}</span>
             </span>
           ))}
         </div>
       )}
 
       <table className="sr-only">
-        <caption>Totais previstos por mês e por moeda</caption>
+        <caption>Totais previstos por mês e por despesa</caption>
         <thead>
           <tr>
             <th scope="col">Mês</th>
-            {currencyOrder.map((currency) => (
-              <th key={currency} scope="col">
-                {currency}
+            {expenseSummaries.map(([expenseKey, info]) => (
+              <th key={expenseKey} scope="col">
+                {info.description}
               </th>
             ))}
           </tr>
@@ -201,11 +240,14 @@ export function MonthlyProjectionChart({
           {data.map((month) => (
             <tr key={month.key}>
               <th scope="row">{month.label}</th>
-              {currencyOrder.map((currency) => (
-                <td key={currency}>
-                  {formatCurrency(month.totals[currency] ?? 0, currency)}
-                </td>
-              ))}
+              {expenseSummaries.map(([expenseKey, info]) => {
+                const expense = month.expenses[expenseKey];
+                return (
+                  <td key={expenseKey}>
+                    {expense ? formatCurrency(expense.amount, expense.currency) : '—'}
+                  </td>
+                );
+              })}
             </tr>
           ))}
         </tbody>
