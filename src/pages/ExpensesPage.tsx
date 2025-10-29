@@ -45,6 +45,8 @@ const CHART_PERIOD_OPTIONS: { value: ChartPeriod; label: string }[] = [
   { value: 'total', label: 'Total' }
 ];
 
+const INITIAL_FIXED_EXPENSE_OCCURRENCES_LIMIT = 6;
+
 const CHART_PERIOD_SUMMARY: Record<ChartPeriod, string> = {
   mensal: 'no mês actual',
   anual: 'no ano em curso',
@@ -129,16 +131,21 @@ function toIsoDate(value: string): string | null {
   return parsed ? parsed.toISOString() : null;
 }
 
-function generateMonthlyOccurrences(start: Date, end: Date): Date[] {
+export function generateMonthlyOccurrences(
+  start: Date,
+  end: Date,
+  options?: { maxOccurrences?: number }
+): Date[] {
   const occurrences: Date[] = [];
   if (end < start) {
     return occurrences;
   }
 
+  const maxOccurrences = options?.maxOccurrences ?? Number.POSITIVE_INFINITY;
   const startDay = start.getUTCDate();
   let current = new Date(start);
 
-  while (current.getTime() <= end.getTime()) {
+  while (current.getTime() <= end.getTime() && occurrences.length < maxOccurrences) {
     occurrences.push(new Date(current));
     const baseYear = current.getUTCFullYear();
     const baseMonth = current.getUTCMonth();
@@ -432,7 +439,9 @@ function ExpensesPage() {
     const shouldGenerateSeries = !editingId && requiresWindow && endDate;
 
     if (shouldGenerateSeries && endDate) {
-      const occurrences = generateMonthlyOccurrences(startDate, endDate);
+      const occurrences = generateMonthlyOccurrences(startDate, endDate, {
+        maxOccurrences: INITIAL_FIXED_EXPENSE_OCCURRENCES_LIMIT
+      });
       if (occurrences.length === 0) {
         setFormError('Não existem ocorrências dentro do intervalo indicado.');
         return;
