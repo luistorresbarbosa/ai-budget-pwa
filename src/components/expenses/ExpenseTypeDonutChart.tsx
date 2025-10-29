@@ -109,7 +109,7 @@ export default function ExpenseTypeDonutChart({
             Distribuição por tipo
           </h3>
           <p className="text-xs text-slate-500">
-            Como as despesas pendentes se dividem entre fixas e variáveis.
+            Como as despesas pendentes até ao final do ano se dividem entre fixas e variáveis.
           </p>
         </div>
         <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600">
