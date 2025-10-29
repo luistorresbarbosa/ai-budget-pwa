@@ -12,6 +12,12 @@ import {
 } from '../components/documents/DocumentUploadButton';
 import MonthlyProjectionChart from '../components/expenses/MonthlyProjectionChart';
 import ExpenseTypeDonutChart from '../components/expenses/ExpenseTypeDonutChart';
+import TopFixedExpensesChart, {
+  type TopFixedExpensesChartItem
+} from '../components/expenses/TopFixedExpensesChart';
+import CategoryTotalsBarChart, {
+  type CategoryTotalsChartItem
+} from '../components/expenses/CategoryTotalsBarChart';
 import type { MonthlyProjection } from '../types/expenses';
 
 const statusStyles: Record<Expense['status'], string> = {
@@ -157,6 +163,8 @@ function ExpensesPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [accountFilter, setAccountFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('todas');
+  const [pageSize, setPageSize] = useState(10);
+  const [currentPage, setCurrentPage] = useState(1);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const isFixedType = formState.type === 'fixa';
   const requiresRecurrenceWindow =
@@ -171,13 +179,53 @@ function ExpensesPage() {
 
   useEffect(() => {
     if (!editingId) {
-      const defaultAccountId = accounts[0]?.id || '';
+      const fallbackAccountId = accounts[0]?.id || '';
       setFormState((prev) => ({
         ...prev,
-        accountId: prev.accountId || defaultAccountId
+        accountId: accountFilter || prev.accountId || fallbackAccountId
       }));
     }
-  }, [accounts, editingId]);
+  }, [accounts, accountFilter, editingId]);
+
+  const tabDefinitions = useMemo(
+    () => [
+      { id: '__all__', label: 'Todas as contas', value: '' },
+      ...accounts.map((account) => ({
+        id: account.id,
+        label: account.name,
+        value: account.id
+      }))
+    ],
+    [accounts]
+  );
+
+  const tabSummaries = useMemo(() => {
+    const summaryMap = new Map<string, { totals: Record<string, number>; count: number }>();
+    summaryMap.set('', { totals: {}, count: 0 });
+    accounts.forEach((account) => {
+      summaryMap.set(account.id, { totals: {}, count: 0 });
+    });
+
+    expenses.forEach((expense) => {
+      const update = (key: string) => {
+        const entry = summaryMap.get(key);
+        if (!entry) {
+          return;
+        }
+        entry.count += 1;
+        entry.totals[expense.currency] =
+          (entry.totals[expense.currency] ?? 0) + expense.amount;
+      };
+
+      update('');
+      update(expense.accountId);
+    });
+
+    return Object.fromEntries(summaryMap.entries()) as Record<
+      string,
+      { totals: Record<string, number>; count: number }
+    >;
+  }, [accounts, expenses]);
 
   const handleEdit = (expense: Expense) => {
     setEditingId(expense.id);
@@ -211,7 +259,7 @@ function ExpensesPage() {
     setEditingId(null);
     setFormState({
       ...EMPTY_FORM,
-      accountId: accounts[0]?.id ?? ''
+      accountId: accountFilter || accounts[0]?.id || ''
     });
   };
 
@@ -442,8 +490,16 @@ function ExpensesPage() {
     [accounts]
   );
 
+  const tabExpenses = useMemo(
+    () =>
+      accountFilter
+        ? expenses.filter((expense) => expense.accountId === accountFilter)
+        : expenses,
+    [expenses, accountFilter]
+  );
+
   const monthlyProjections = useMemo<MonthlyProjection[]>(() => {
-    if (expenses.length === 0) {
+    if (tabExpenses.length === 0) {
       return [];
     }
 
@@ -454,7 +510,7 @@ function ExpensesPage() {
       { label: string; totals: Record<string, number>; typeTotals: Record<Expense['type'], number> }
     >();
 
-    expenses.forEach((expense) => {
+    tabExpenses.forEach((expense) => {
       if (expense.status === 'pago') {
         return;
       }
@@ -486,7 +542,7 @@ function ExpensesPage() {
       }))
       .sort((a, b) => (a.key < b.key ? -1 : 1))
       .slice(0, 12);
-  }, [expenses]);
+  }, [tabExpenses]);
 
   const projectionTotalsByCurrency = useMemo(() => {
     return monthlyProjections.reduce<Record<string, number>>((acc, month) => {
@@ -535,7 +591,7 @@ function ExpensesPage() {
 
   const pendingTypeTotals = useMemo(
     () =>
-      expenses.reduce(
+      tabExpenses.reduce(
         (acc, expense) => {
           if (expense.status === 'pago') {
             return acc;
@@ -546,13 +602,96 @@ function ExpensesPage() {
         },
         { fixa: 0, variavel: 0 } as Record<Expense['type'], number>
       ),
-    [expenses]
+    [tabExpenses]
   );
+
+  const topFixedExpenses = useMemo<TopFixedExpensesChartItem[]>(() => {
+    const groups = new Map<
+      string,
+      { label: string; total: number; currency: string; count: number }
+    >();
+
+    tabExpenses.forEach((expense) => {
+      if (resolveExpenseType(expense) !== 'fixa') {
+        return;
+      }
+      const normalizedDescription = expense.description ? expense.description.trim() : '';
+      const label = normalizedDescription || 'Despesa fixa';
+      const key = `${label}-${expense.currency}`;
+      const existing = groups.get(key);
+      if (existing) {
+        existing.total += expense.amount;
+        existing.count += 1;
+      } else {
+        groups.set(key, {
+          label,
+          total: expense.amount,
+          currency: expense.currency,
+          count: 1
+        });
+      }
+    });
+
+    return Array.from(groups.entries())
+      .map(([key, value]) => ({
+        id: key,
+        label: value.label,
+        value: value.total,
+        currency: value.currency,
+        meta: `${value.count} despesa${value.count === 1 ? '' : 's'}`
+      }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 10);
+  }, [tabExpenses]);
+
+  const categoryTotals = useMemo<CategoryTotalsChartItem[]>(() => {
+    const groups = new Map<
+      string,
+      {
+        id: string;
+        label: string;
+        total: number;
+        currencyBreakdown: Record<string, number>;
+        count: number;
+      }
+    >();
+
+    tabExpenses.forEach((expense) => {
+      const normalizedCategory = expense.category ? expense.category.trim() : '';
+      const label = normalizedCategory || 'Sem categoria';
+      const key = label.toLowerCase() || 'sem-categoria';
+      const existing = groups.get(key);
+      if (existing) {
+        existing.total += expense.amount;
+        existing.count += 1;
+        existing.currencyBreakdown[expense.currency] =
+          (existing.currencyBreakdown[expense.currency] ?? 0) + expense.amount;
+      } else {
+        groups.set(key, {
+          id: key,
+          label,
+          total: expense.amount,
+          currencyBreakdown: { [expense.currency]: expense.amount },
+          count: 1
+        });
+      }
+    });
+
+    return Array.from(groups.values())
+      .map((item) => ({
+        id: item.id,
+        label: item.label,
+        value: item.total,
+        currencyBreakdown: item.currencyBreakdown,
+        meta: `${item.count} despesa${item.count === 1 ? '' : 's'}`
+      }))
+      .sort((a, b) => b.value - a.value);
+  }, [tabExpenses]);
 
   const { perExpenseInstallments, installmentSummaries } = useMemo(() => {
     const groups = new Map<string, Expense[]>();
 
-    expenses.forEach((expense) => {
+    tabExpenses.forEach((expense) => {
       const expenseType = resolveExpenseType(expense);
       if (expenseType !== 'fixa') {
         return;
@@ -623,7 +762,7 @@ function ExpensesPage() {
       perExpenseInstallments: perExpense,
       installmentSummaries: summary
     };
-  }, [expenses]);
+  }, [tabExpenses]);
 
   const topInstallmentSummaries = useMemo(
     () => installmentSummaries.filter((item) => item.remaining > 0 && item.total > 1).slice(0, 3),
@@ -637,17 +776,53 @@ function ExpensesPage() {
 
   const filtered = useMemo(
     () =>
-      expenses.filter((expense) => {
-        const matchAccount = accountFilter ? expense.accountId === accountFilter : true;
-        const matchStatus = statusFilter === 'todas' ? true : expense.status === statusFilter;
-        return matchAccount && matchStatus;
-      }),
-    [expenses, accountFilter, statusFilter]
+      tabExpenses.filter((expense) =>
+        statusFilter === 'todas' ? true : expense.status === statusFilter
+      ),
+    [tabExpenses, statusFilter]
   );
 
-  const totalPendente = filtered
-    .filter((item) => item.status !== 'pago')
-    .reduce((sum, expense) => sum + expense.amount, 0);
+  const pendingTotalsByCurrency = useMemo(
+    () =>
+      filtered.reduce<Record<string, number>>((acc, expense) => {
+        if (expense.status === 'pago') {
+          return acc;
+        }
+        acc[expense.currency] = (acc[expense.currency] ?? 0) + expense.amount;
+        return acc;
+      }, {}),
+    [filtered]
+  );
+
+  const pendingTotalsSummary = useMemo(() => {
+    const entries = Object.entries(pendingTotalsByCurrency);
+    if (entries.length === 0) {
+      return 'Sem valores pendentes.';
+    }
+    return entries
+      .map(([currency, amount]) => formatCurrency(amount, currency))
+      .join(' · ');
+  }, [pendingTotalsByCurrency]);
+
+  const totalResults = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(totalResults / pageSize));
+
+  const paginatedExpenses = useMemo(() => {
+    const startIndex = (currentPage - 1) * pageSize;
+    return filtered.slice(startIndex, startIndex + pageSize);
+  }, [filtered, currentPage, pageSize]);
+
+  const pageRangeStart = totalResults === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const pageRangeEnd = Math.min(currentPage * pageSize, totalResults);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [accountFilter, statusFilter, pageSize]);
+
+  useEffect(() => {
+    const maxPage = Math.max(1, Math.ceil(filtered.length / pageSize));
+    setCurrentPage((prev) => Math.min(prev, maxPage));
+  }, [filtered.length, pageSize]);
 
   return (
     <motion.section
@@ -675,6 +850,51 @@ function ExpensesPage() {
         </div>
       </header>
 
+      <nav
+        className="flex w-full gap-2 overflow-x-auto rounded-3xl border border-slate-200 bg-white/70 p-2"
+        aria-label="Filtrar despesas por conta"
+        role="tablist"
+      >
+        {tabDefinitions.map((tab) => {
+          const summary = tabSummaries[tab.value] ?? { totals: {}, count: 0 };
+          const entries = Object.entries(summary.totals);
+          const currencySummary = entries
+            .slice(0, 2)
+            .map(([currency, amount]) => formatCurrency(amount, currency));
+          const remainingCurrencies = entries.length - currencySummary.length;
+          if (remainingCurrencies > 0) {
+            currencySummary.push(`+${remainingCurrencies}`);
+          }
+          const summaryText =
+            currencySummary.length > 0
+              ? currencySummary.join(' · ')
+              : summary.count > 0
+                ? `${summary.count} despesa${summary.count === 1 ? '' : 's'}`
+                : 'Sem registos';
+          const isActive = accountFilter === tab.value;
+
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              onClick={() => setAccountFilter(tab.value)}
+              className={`flex min-w-[200px] flex-col gap-1 rounded-2xl border px-4 py-3 text-left text-sm transition ${
+                isActive
+                  ? 'border-slate-900 bg-slate-900 text-white shadow-sm'
+                  : 'border-transparent bg-white text-slate-600 hover:border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              <span className="font-semibold">{tab.label}</span>
+              <span className={isActive ? 'text-xs text-slate-200' : 'text-xs text-slate-500'}>
+                {summaryText}
+              </span>
+            </button>
+          );
+        })}
+      </nav>
+
       <AnimatePresence>
         {!isModalOpen && toast && (
           <motion.p
@@ -688,6 +908,11 @@ function ExpensesPage() {
           </motion.p>
         )}
       </AnimatePresence>
+
+      <section className="grid gap-4 md:grid-cols-2">
+        <TopFixedExpensesChart items={topFixedExpenses} formatCurrency={formatCurrency} />
+        <CategoryTotalsBarChart items={categoryTotals} formatCurrency={formatCurrency} />
+      </section>
 
       {monthlyProjections.length > 0 ? (
         <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -1040,49 +1265,55 @@ function ExpensesPage() {
         </form>
       </Modal>
 
-      <div className="grid gap-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm md:grid-cols-[2fr_1fr] md:items-center">
-        <div className="grid gap-4 sm:grid-cols-2">
-          <label className="block space-y-2 text-sm text-slate-600">
-            <span className="text-xs uppercase tracking-wide text-slate-400">Conta</span>
-            <select
-              value={accountFilter}
-              onChange={(event) => setAccountFilter(event.target.value)}
-              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10"
-            >
-              <option value="">Todas</option>
-              {accounts.map((account) => (
-                <option key={account.id} value={account.id}>
-                  {account.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block space-y-2 text-sm text-slate-600">
-            <span className="text-xs uppercase tracking-wide text-slate-400">Estado</span>
-            <select
-              value={statusFilter}
-              onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}
-              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10"
-            >
-              <option value="todas">Todas</option>
-              <option value="planeado">Pendente</option>
-              <option value="pago">Pago</option>
-              <option value="em-analise">Em análise</option>
-            </select>
-          </label>
-        </div>
-        <div className="rounded-2xl border border-slate-900 bg-slate-900 p-4 text-white shadow-sm">
-          <span className="block text-xs uppercase tracking-wider text-slate-200">Total pendente</span>
-          <strong className="mt-1 block text-2xl font-semibold">
-            {totalPendente.toFixed(2)} EUR
-          </strong>
-        </div>
-      </div>
+      <section className="space-y-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="flex flex-col gap-2 text-sm text-slate-600">
+              <span className="text-xs uppercase tracking-wide text-slate-400">Estado</span>
+              <select
+                value={statusFilter}
+                onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10"
+              >
+                <option value="todas">Todas</option>
+                <option value="planeado">Pendente</option>
+                <option value="pago">Pago</option>
+                <option value="em-analise">Em análise</option>
+              </select>
+            </label>
 
-      <div className="space-y-4">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 shadow-sm">
+              <span className="text-xs uppercase tracking-wide text-slate-400">Totais pendentes</span>
+              <p className="mt-1 font-semibold text-slate-900">{pendingTotalsSummary}</p>
+            </div>
+          </div>
 
-        <motion.ul layout className="grid gap-3 md:hidden">
-          {filtered.map((expense) => {
+          <div className="flex flex-wrap items-center gap-3 text-sm text-slate-600">
+            <label className="flex flex-col gap-2">
+              <span className="text-xs uppercase tracking-wide text-slate-400">Resultados por página</span>
+              <select
+                value={pageSize}
+                onChange={(event) => {
+                  const nextSize = Number.parseInt(event.target.value, 10);
+                  setPageSize(Number.isNaN(nextSize) ? 10 : nextSize);
+                }}
+                className="w-32 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:ring-slate-900/10"
+              >
+                {[5, 10, 20, 50].map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <span className="text-xs uppercase tracking-wide text-slate-400">
+              {totalResults} despesa{totalResults === 1 ? '' : 's'}
+            </span>
+          </div>
+        </div>
+
+        <motion.ul layout className="grid gap-3 md:grid-cols-2">
+          {paginatedExpenses.map((expense) => {
             const expenseType = resolveExpenseType(expense);
             const installmentInfo = perExpenseInstallments.get(expense.id);
             const installmentsLabel =
@@ -1098,13 +1329,13 @@ function ExpensesPage() {
                 layout
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+                className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600 shadow-sm"
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <p className="text-sm font-semibold text-slate-900">{expense.description}</p>
                     <small className="text-xs uppercase tracking-wide text-slate-400">
-                      {accountById[expense.accountId] ?? 'Conta desconhecida'} · {expense.category}
+                      {accountById[expense.accountId] ?? 'Conta desconhecida'} · {expense.category || 'Sem categoria'}
                     </small>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
@@ -1130,137 +1361,69 @@ function ExpensesPage() {
                   </div>
                 </div>
                 <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-slate-600">
-                  <span className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
+                  <span className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1">
                     <Euro className="h-4 w-4 text-slate-400" />
                     {expense.amount.toFixed(2)} {expense.currency}
                   </span>
-                  <span className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
+                  <span className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1">
                     <CalendarDays className="h-4 w-4 text-slate-400" />
                     {new Date(expense.dueDate).toLocaleDateString('pt-PT')}
                   </span>
                   {expense.recurrence && (
-                    <span className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs uppercase tracking-wide text-slate-500">
+                    <span className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs uppercase tracking-wide text-slate-500">
                       <RefreshCcw className="h-4 w-4 text-slate-400" />
                       {expense.recurrence}
                     </span>
                   )}
                   {expense.recurrenceEndDate && (
-                    <span className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs uppercase tracking-wide text-slate-500">
+                    <span className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs uppercase tracking-wide text-slate-500">
                       <CalendarDays className="h-4 w-4 text-slate-400" />
                       Até {new Date(expense.recurrenceEndDate).toLocaleDateString('pt-PT')}
                     </span>
                   )}
-                  <span className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs uppercase tracking-wide text-slate-500">
+                  <span className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs uppercase tracking-wide text-slate-500">
                     {installmentsLabel}
                   </span>
                 </div>
               </motion.li>
             );
           })}
-          {filtered.length === 0 && (
+          {totalResults === 0 && (
             <li className="rounded-2xl border border-dashed border-slate-200 bg-white/70 p-6 text-center text-sm text-slate-500">
               Nenhuma despesa encontrada para os filtros seleccionados.
             </li>
           )}
         </motion.ul>
 
-        <div className="hidden overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm md:block">
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-200 text-left text-sm text-slate-600">
-              <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
-                  <tr>
-                    <th className="px-6 py-4 font-semibold">Descrição</th>
-                    <th className="px-6 py-4 font-semibold">Conta</th>
-                    <th className="px-6 py-4 font-semibold">Categoria</th>
-                    <th className="px-6 py-4 font-semibold">Tipo</th>
-                    <th className="px-6 py-4 font-semibold">Valor</th>
-                    <th className="px-6 py-4 font-semibold">Vencimento</th>
-                    <th className="px-6 py-4 font-semibold">Prestações</th>
-                    <th className="px-6 py-4 font-semibold">Estado</th>
-                    <th className="px-6 py-4 font-semibold">Ações</th>
-                  </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200">
-                  {filtered.map((expense) => {
-                    const expenseType = resolveExpenseType(expense);
-                    const installmentInfo = perExpenseInstallments.get(expense.id);
-                    const installmentsSummary =
-                      expenseType === 'fixa'
-                        ? installmentInfo
-                          ? `Faltam ${installmentInfo.remainingFromCurrent} de ${installmentInfo.total}`
-                          : 'Despesa fixa'
-                        : 'Despesa pontual';
-
-                    return (
-                      <motion.tr
-                        key={expense.id}
-                        layout
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        className="transition hover:bg-slate-50"
-                      >
-                        <td className="px-6 py-4">
-                          <p className="text-sm font-semibold text-slate-900">{expense.description}</p>
-                          {expense.recurrence && (
-                            <small className="text-xs uppercase tracking-wide text-slate-400">
-                              Recorrência: {expense.recurrence}
-                            </small>
-                          )}
-                          {expense.recurrenceEndDate && (
-                            <small className="block text-xs uppercase tracking-wide text-slate-400">
-                              Até {new Date(expense.recurrenceEndDate).toLocaleDateString('pt-PT')}
-                            </small>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 text-sm text-slate-600">{accountById[expense.accountId]}</td>
-                        <td className="px-6 py-4 text-sm text-slate-600">{expense.category}</td>
-                        <td className="px-6 py-4 text-sm">
-                          <span
-                            className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${typeStyles[expenseType]}`}
-                          >
-                            {typeLabels[expenseType]}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-sm font-semibold text-slate-700">
-                          {expense.amount.toFixed(2)} {expense.currency}
-                        </td>
-                        <td className="px-6 py-4 text-sm text-slate-600">
-                          {new Date(expense.dueDate).toLocaleDateString('pt-PT')}
-                        </td>
-                        <td className="px-6 py-4 text-sm text-slate-600">{installmentsSummary}</td>
-                        <td className="px-6 py-4 text-sm">
-                          <span
-                            className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${statusStyles[expense.status]}`}
-                          >
-                            <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                            {statusLabels[expense.status]}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-sm">
-                          <button
-                            type="button"
-                            onClick={() => handleEdit(expense)}
-                            className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-500 transition hover:border-slate-300 hover:text-slate-900"
-                          >
-                            <Pencil className="h-4 w-4" />
-                            Editar
-                          </button>
-                        </td>
-                      </motion.tr>
-                    );
-                  })}
-                  {filtered.length === 0 && (
-                    <tr>
-                      <td colSpan={9} className="px-6 py-10 text-center text-sm text-slate-500">
-                        Nenhuma despesa encontrada para os filtros seleccionados.
-                      </td>
-                    </tr>
-                  )}
-              </tbody>
-            </table>
+        {totalResults > 0 && (
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs uppercase tracking-wide text-slate-400">
+              A mostrar {pageRangeStart}–{pageRangeEnd} de {totalResults} despesas
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+                disabled={currentPage === 1}
+                className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Anterior
+              </button>
+              <span className="text-sm font-medium text-slate-600">
+                Página {currentPage} de {totalPages}
+              </span>
+              <button
+                type="button"
+                onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
+                disabled={currentPage === totalPages}
+                className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Seguinte
+              </button>
+            </div>
           </div>
-        </div>
-      </div>
+        )}
+      </section>
     </motion.section>
   );
 }
