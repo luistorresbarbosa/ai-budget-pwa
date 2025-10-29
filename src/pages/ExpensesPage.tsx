@@ -163,12 +163,14 @@ function formatCurrency(amount: number, currency: string): string {
   }).format(amount);
 }
 
-function getCurrentYearProjectionWindow() {
+function getSixMonthProjectionWindow() {
   const now = new Date();
   const startOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  const endOfYear = new Date(Date.UTC(now.getUTCFullYear(), 11, 31, 23, 59, 59, 999));
+  const endOfWindow = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 6, 0, 23, 59, 59, 999)
+  );
 
-  return { startOfMonth, endOfYear };
+  return { startOfMonth, endOfWindow };
 }
 
 function filterExpensesByPeriod(
@@ -572,7 +574,7 @@ function ExpensesPage() {
       return [];
     }
 
-    const { startOfMonth: startOfCurrentMonth, endOfYear } = getCurrentYearProjectionWindow();
+    const { startOfMonth: startOfCurrentMonth, endOfWindow } = getSixMonthProjectionWindow();
     const accumulator = new Map<
       string,
       {
@@ -596,7 +598,7 @@ function ExpensesPage() {
       if (due.getTime() < startOfCurrentMonth.getTime()) {
         return;
       }
-      if (due.getTime() > endOfYear.getTime()) {
+      if (due.getTime() > endOfWindow.getTime()) {
         return;
       }
       const key = `${due.getUTCFullYear()}-${String(due.getUTCMonth() + 1).padStart(2, '0')}`;
@@ -631,7 +633,7 @@ function ExpensesPage() {
         expenses: value.expenses
       }))
       .sort((a, b) => (a.key < b.key ? -1 : 1))
-      .slice(0, 12);
+      .slice(0, 6);
   }, [tabExpenses]);
 
   const projectionTotalsByCurrency = useMemo(() => {
@@ -686,7 +688,7 @@ function ExpensesPage() {
   const nextProjectionMonth = monthlyProjections[0] ?? null;
 
   const pendingTypeTotals = useMemo(() => {
-    const { startOfMonth: startOfCurrentMonth, endOfYear } = getCurrentYearProjectionWindow();
+    const { startOfMonth: startOfCurrentMonth, endOfWindow } = getSixMonthProjectionWindow();
     return tabExpenses.reduce(
       (acc, expense) => {
         if (expense.status === 'pago') {
@@ -696,7 +698,7 @@ function ExpensesPage() {
         if (Number.isNaN(due.getTime())) {
           return acc;
         }
-        if (due.getTime() < startOfCurrentMonth.getTime() || due.getTime() > endOfYear.getTime()) {
+        if (due.getTime() < startOfCurrentMonth.getTime() || due.getTime() > endOfWindow.getTime()) {
           return acc;
         }
         const expenseType = resolveExpenseType(expense);
@@ -1121,11 +1123,11 @@ function ExpensesPage() {
                 Projeção de despesas futuras
               </h2>
               <p className="text-sm text-slate-500">
-                Totais previstos por mês até ao final do ano para despesas ainda pendentes.
+                Totais previstos por mês para os próximos 6 meses de despesas ainda pendentes.
               </p>
             </div>
             <span className="inline-flex items-center rounded-2xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm">
-              Até ao final do ano · {projectionTotalsSummary}
+              Próximos 6 meses · {projectionTotalsSummary}
             </span>
           </div>
 
@@ -1153,7 +1155,7 @@ function ExpensesPage() {
                   Insights rápidos
                 </h3>
                 <p className="mt-1 text-xs text-slate-500">
-                  Foco nas despesas agendadas até ao final do ano corrente.
+                  Foco nas despesas agendadas para os próximos 6 meses.
                 </p>
                 <div className="mt-3 space-y-3 text-sm text-slate-600">
                   {nextProjectionMonth && (
