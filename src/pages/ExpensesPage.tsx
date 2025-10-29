@@ -829,6 +829,89 @@ function ExpensesPage() {
       .sort((a, b) => b.value - a.value);
   }, [chartExpenses]);
 
+  const topFixedExpenses = useMemo<TopFixedExpensesChartItem[]>(() => {
+    const groups = new Map<
+      string,
+      { label: string; total: number; currency: string; count: number }
+    >();
+
+    chartExpenses.forEach((expense) => {
+      if (resolveExpenseType(expense) !== 'fixa') {
+        return;
+      }
+      const normalizedDescription = expense.description ? expense.description.trim() : '';
+      const label = normalizedDescription || 'Despesa fixa';
+      const key = `${label}-${expense.currency}`;
+      const existing = groups.get(key);
+      if (existing) {
+        existing.total += expense.amount;
+        existing.count += 1;
+      } else {
+        groups.set(key, {
+          label,
+          total: expense.amount,
+          currency: expense.currency,
+          count: 1
+        });
+      }
+    });
+
+    return Array.from(groups.entries())
+      .map(([key, value]) => ({
+        id: key,
+        label: value.label,
+        value: value.total,
+        currency: value.currency,
+        meta: `${value.count} despesa${value.count === 1 ? '' : 's'}`
+      }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 10);
+  }, [chartExpenses]);
+
+  const categoryTotals = useMemo<CategoryTotalsChartItem[]>(() => {
+    const groups = new Map<
+      string,
+      {
+        id: string;
+        label: string;
+        total: number;
+        currencyBreakdown: Record<string, number>;
+        count: number;
+      }
+    >();
+
+    chartExpenses.forEach((expense) => {
+      const normalizedCategory = expense.category ? expense.category.trim() : '';
+      const label = normalizedCategory || 'Sem categoria';
+      const key = label.toLowerCase() || 'sem-categoria';
+      const existing = groups.get(key);
+      if (existing) {
+        existing.total += expense.amount;
+        existing.count += 1;
+        existing.currencyBreakdown[expense.currency] =
+          (existing.currencyBreakdown[expense.currency] ?? 0) + expense.amount;
+      } else {
+        groups.set(key, {
+          id: key,
+          label,
+          total: expense.amount,
+          currencyBreakdown: { [expense.currency]: expense.amount },
+          count: 1
+        });
+      }
+    });
+
+    return Array.from(groups.values())
+      .map((item) => ({
+        id: item.id,
+        label: item.label,
+        value: item.total,
+        currencyBreakdown: item.currencyBreakdown,
+        meta: `${item.count} despesa${item.count === 1 ? '' : 's'}`
+      }))
+      .sort((a, b) => b.value - a.value);
+  }, [chartExpenses]);
+
   const { perExpenseInstallments, installmentSummaries } = useMemo(() => {
     const groups = new Map<string, Expense[]>();
 
