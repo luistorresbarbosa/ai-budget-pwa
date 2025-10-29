@@ -1,6 +1,6 @@
 # n8n Workflows
 
-Este directório contém workflows n8n relacionados com a automação da aplicação Gestor de Despesas. Cada ficheiro JSON pode ser importado directamente no n8n.
+Este directório contém workflows n8n relacionados com a automação da aplicação Gestão de Orçamento. Cada ficheiro JSON pode ser importado directamente no n8n.
 
 ## Scripts disponíveis
 

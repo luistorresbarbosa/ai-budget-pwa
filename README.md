@@ -1,4 +1,4 @@
-# Gestor de Despesas PWA
+# Gestão de Orçamento PWA
 
 Aplicação web (PWA) para gestão de despesas pessoais. O projecto está configurado com [Vite](https://vitejs.dev/),
 React e TypeScript, incluindo mock data, estado global via Zustand e uma estrutura inicial para as principais áreas da app:
