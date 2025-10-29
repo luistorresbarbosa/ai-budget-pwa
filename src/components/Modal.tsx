@@ -54,7 +54,7 @@ export function Modal({ open, onClose, title, description, footer, children }: P
             role="dialog"
             aria-modal="true"
             aria-labelledby={titleId}
-            className="relative z-10 w-full max-w-2xl overflow-hidden rounded-3xl border border-slate-200/70 bg-gradient-to-br from-white via-white to-slate-50 shadow-2xl"
+            className="relative z-10 w-full max-w-3xl overflow-hidden rounded-3xl border border-slate-200/70 bg-gradient-to-br from-white via-white to-slate-50 shadow-2xl"
             initial={{ opacity: 0, y: 40, scale: 0.9, rotateX: -12 }}
             animate={{ opacity: 1, y: 0, scale: 1, rotateX: 0 }}
             exit={{ opacity: 0, y: 40, scale: 0.9, rotateX: -8 }}
@@ -73,7 +73,7 @@ export function Modal({ open, onClose, title, description, footer, children }: P
               />
             </div>
 
-            <div className="relative max-h-[min(90vh,44rem)] overflow-y-auto space-y-6 p-6 sm:max-h-[80vh]">
+            <div className="relative max-h-[min(90vh,44rem)] overflow-y-auto space-y-6 p-6 sm:max-h-[80vh] sm:p-8">
               <header className="flex items-start justify-between gap-6">
                 <div className="space-y-1">
                   <h2 id={titleId} className="text-xl font-semibold text-slate-900 sm:text-2xl">
