@@ -15,6 +15,9 @@ import ExpenseTypeDonutChart from '../components/expenses/ExpenseTypeDonutChart'
 import TopFixedExpensesChart, {
   type TopFixedExpensesChartItem
 } from '../components/expenses/TopFixedExpensesChart';
+import TopVariableExpensesChart, {
+  type TopVariableExpensesChartItem
+} from '../components/expenses/TopVariableExpensesChart';
 import CategoryTotalsBarChart, {
   type CategoryTotalsChartItem
 } from '../components/expenses/CategoryTotalsBarChart';
@@ -158,6 +161,14 @@ function formatCurrency(amount: number, currency: string): string {
     currency,
     maximumFractionDigits: 2
   }).format(amount);
+}
+
+function getCurrentYearProjectionWindow() {
+  const now = new Date();
+  const startOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const endOfYear = new Date(Date.UTC(now.getUTCFullYear(), 11, 31, 23, 59, 59, 999));
+
+  return { startOfMonth, endOfYear };
 }
 
 function filterExpensesByPeriod(
@@ -561,8 +572,7 @@ function ExpensesPage() {
       return [];
     }
 
-    const now = new Date();
-    const startOfCurrentMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const { startOfMonth: startOfCurrentMonth, endOfYear } = getCurrentYearProjectionWindow();
     const accumulator = new Map<
       string,
       {
@@ -584,6 +594,9 @@ function ExpensesPage() {
         return;
       }
       if (due.getTime() < startOfCurrentMonth.getTime()) {
+        return;
+      }
+      if (due.getTime() > endOfYear.getTime()) {
         return;
       }
       const key = `${due.getUTCFullYear()}-${String(due.getUTCMonth() + 1).padStart(2, '0')}`;
@@ -672,21 +685,149 @@ function ExpensesPage() {
 
   const nextProjectionMonth = monthlyProjections[0] ?? null;
 
-  const pendingTypeTotals = useMemo(
-    () =>
-      tabExpenses.reduce(
-        (acc, expense) => {
-          if (expense.status === 'pago') {
-            return acc;
-          }
-          const expenseType = resolveExpenseType(expense);
-          acc[expenseType] += expense.amount;
+  const pendingTypeTotals = useMemo(() => {
+    const { startOfMonth: startOfCurrentMonth, endOfYear } = getCurrentYearProjectionWindow();
+    return tabExpenses.reduce(
+      (acc, expense) => {
+        if (expense.status === 'pago') {
           return acc;
-        },
-        { fixa: 0, variavel: 0 } as Record<Expense['type'], number>
-      ),
-    [tabExpenses]
-  );
+        }
+        const due = new Date(expense.dueDate);
+        if (Number.isNaN(due.getTime())) {
+          return acc;
+        }
+        if (due.getTime() < startOfCurrentMonth.getTime() || due.getTime() > endOfYear.getTime()) {
+          return acc;
+        }
+        const expenseType = resolveExpenseType(expense);
+        acc[expenseType] += expense.amount;
+        return acc;
+      },
+      { fixa: 0, variavel: 0 } as Record<Expense['type'], number>
+    );
+  }, [tabExpenses]);
+
+  const topFixedExpenses = useMemo<TopFixedExpensesChartItem[]>(() => {
+    const groups = new Map<
+      string,
+      { label: string; total: number; currency: string; count: number }
+    >();
+
+    chartExpenses.forEach((expense) => {
+      if (resolveExpenseType(expense) !== 'fixa') {
+        return;
+      }
+      const normalizedDescription = expense.description ? expense.description.trim() : '';
+      const label = normalizedDescription || 'Despesa fixa';
+      const key = `${label}-${expense.currency}`;
+      const existing = groups.get(key);
+      if (existing) {
+        existing.total += expense.amount;
+        existing.count += 1;
+      } else {
+        groups.set(key, {
+          label,
+          total: expense.amount,
+          currency: expense.currency,
+          count: 1
+        });
+      }
+    });
+
+    return Array.from(groups.entries())
+      .map(([key, value]) => ({
+        id: key,
+        label: value.label,
+        value: value.total,
+        currency: value.currency,
+        meta: `${value.count} despesa${value.count === 1 ? '' : 's'}`
+      }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 10);
+  }, [chartExpenses]);
+
+  const topVariableExpenses = useMemo<TopVariableExpensesChartItem[]>(() => {
+    const groups = new Map<
+      string,
+      { label: string; total: number; currency: string; count: number }
+    >();
+
+    chartExpenses.forEach((expense) => {
+      if (resolveExpenseType(expense) !== 'variavel') {
+        return;
+      }
+      const normalizedDescription = expense.description ? expense.description.trim() : '';
+      const label = normalizedDescription || 'Despesa variável';
+      const key = `${label}-${expense.currency}`;
+      const existing = groups.get(key);
+      if (existing) {
+        existing.total += expense.amount;
+        existing.count += 1;
+      } else {
+        groups.set(key, {
+          label,
+          total: expense.amount,
+          currency: expense.currency,
+          count: 1
+        });
+      }
+    });
+
+    return Array.from(groups.entries())
+      .map(([key, value]) => ({
+        id: key,
+        label: value.label,
+        value: value.total,
+        currency: value.currency,
+        meta: `${value.count} despesa${value.count === 1 ? '' : 's'}`
+      }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 10);
+  }, [chartExpenses]);
+
+  const categoryTotals = useMemo<CategoryTotalsChartItem[]>(() => {
+    const groups = new Map<
+      string,
+      {
+        id: string;
+        label: string;
+        total: number;
+        currencyBreakdown: Record<string, number>;
+        count: number;
+      }
+    >();
+
+    chartExpenses.forEach((expense) => {
+      const normalizedCategory = expense.category ? expense.category.trim() : '';
+      const label = normalizedCategory || 'Sem categoria';
+      const key = label.toLowerCase() || 'sem-categoria';
+      const existing = groups.get(key);
+      if (existing) {
+        existing.total += expense.amount;
+        existing.count += 1;
+        existing.currencyBreakdown[expense.currency] =
+          (existing.currencyBreakdown[expense.currency] ?? 0) + expense.amount;
+      } else {
+        groups.set(key, {
+          id: key,
+          label,
+          total: expense.amount,
+          currencyBreakdown: { [expense.currency]: expense.amount },
+          count: 1
+        });
+      }
+    });
+
+    return Array.from(groups.values())
+      .map((item) => ({
+        id: item.id,
+        label: item.label,
+        value: item.total,
+        currencyBreakdown: item.currencyBreakdown,
+        meta: `${item.count} despesa${item.count === 1 ? '' : 's'}`
+      }))
+      .sort((a, b) => b.value - a.value);
+  }, [chartExpenses]);
 
   const topFixedExpenses = useMemo<TopFixedExpensesChartItem[]>(() => {
     const groups = new Map<
@@ -1022,19 +1163,31 @@ function ExpensesPage() {
           </div>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2">
-          <TopFixedExpensesChart
-            items={topFixedExpenses}
-            formatCurrency={formatCurrency}
-            description={`Despesas recorrentes com maior impacto ${chartPeriodSummaryText}.`}
-            emptyMessage={`Sem despesas fixas ${chartPeriodEmptyText}.`}
-          />
-          <CategoryTotalsBarChart
-            items={categoryTotals}
-            formatCurrency={formatCurrency}
-            description={`Categorias com maior volume de despesas ${chartPeriodSummaryText}.`}
-            emptyMessage={`Ainda não existem despesas ${chartPeriodEmptyText} para calcular os totais por categoria.`}
-          />
+        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+          <div>
+            <TopFixedExpensesChart
+              items={topFixedExpenses}
+              formatCurrency={formatCurrency}
+              description={`Despesas recorrentes com maior impacto ${chartPeriodSummaryText}.`}
+              emptyMessage={`Sem despesas fixas ${chartPeriodEmptyText}.`}
+            />
+          </div>
+          <div>
+            <TopVariableExpensesChart
+              items={topVariableExpenses}
+              formatCurrency={formatCurrency}
+              description={`Despesas variáveis com maior impacto ${chartPeriodSummaryText}.`}
+              emptyMessage={`Sem despesas variáveis ${chartPeriodEmptyText}.`}
+            />
+          </div>
+          <div className="lg:col-span-2 xl:col-span-3">
+            <CategoryTotalsBarChart
+              items={categoryTotals}
+              formatCurrency={formatCurrency}
+              description={`Categorias com maior volume de despesas ${chartPeriodSummaryText}.`}
+              emptyMessage={`Ainda não existem despesas ${chartPeriodEmptyText} para calcular os totais por categoria.`}
+            />
+          </div>
         </div>
       </section>
 
@@ -1046,22 +1199,22 @@ function ExpensesPage() {
                 Projeção de despesas futuras
               </h2>
               <p className="text-sm text-slate-500">
-                Totais previstos por mês para despesas ainda pendentes.
+                Totais previstos por mês até ao final do ano para despesas ainda pendentes.
               </p>
             </div>
             <span className="inline-flex items-center rounded-2xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm">
-              {projectionTotalsSummary}
+              Até ao final do ano · {projectionTotalsSummary}
             </span>
           </div>
 
-          <div className="mt-6 grid gap-6 lg:grid-cols-[2fr_1fr]">
-            <MonthlyProjectionChart
-              data={monthlyProjections}
-              formatCurrency={formatCurrency}
-              displayCurrency={projectionDisplayCurrency}
-            />
+          <div className="mt-6 space-y-6">
+            <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
+              <MonthlyProjectionChart
+                data={monthlyProjections}
+                formatCurrency={formatCurrency}
+                displayCurrency={projectionDisplayCurrency}
+              />
 
-            <div className="space-y-4">
               <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                 <ExpenseTypeDonutChart
                   fixedTotal={pendingTypeTotals.fixa}
@@ -1070,80 +1223,83 @@ function ExpensesPage() {
                   formatCurrency={formatCurrency}
                 />
               </div>
-
-              <aside className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <div>
-                  <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Insights rápidos
-                  </h3>
-                  <div className="mt-3 space-y-3 text-sm text-slate-600">
-                    {nextProjectionMonth && (
-                      <div>
-                        <p className="font-medium text-slate-900">Próximo mês previsto</p>
-                        <p className="text-xs uppercase tracking-wide text-slate-400">
-                          {nextProjectionMonth.label}
-                        </p>
-                        <p className="mt-1 text-xs text-slate-500">
-                          {formatProjectionTotals(nextProjectionMonth)}
-                        </p>
-                      </div>
-                    )}
-                    {highestProjection && (
-                      <div>
-                        <p className="font-medium text-slate-900">Mês com maior impacto</p>
-                        <p className="text-xs uppercase tracking-wide text-slate-400">
-                          {highestProjection.label}
-                        </p>
-                        <p className="mt-1 text-xs text-slate-500">
-                          {formatProjectionTotals(highestProjection)}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {currencyOrder.length > 0 && (
-                  <div>
-                    <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Média mensal por moeda
-                    </h4>
-                    <ul className="mt-3 space-y-2 text-sm text-slate-600">
-                      {currencyOrder.map((currency) => (
-                        <li key={currency} className="flex items-center justify-between">
-                          <span>{currency}</span>
-                          <span className="font-medium text-slate-900">
-                            {formatCurrency(monthlyAverageByCurrency[currency] ?? 0, currency)}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {topInstallmentSummaries.length > 0 && (
-                  <div>
-                    <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Prestações em falta
-                    </h4>
-                    <ul className="mt-3 space-y-3 text-sm text-slate-600">
-                      {topInstallmentSummaries.map((item) => (
-                        <li key={item.key} className="rounded-2xl border border-slate-200 bg-white/80 p-3 shadow-sm">
-                          <p className="font-medium text-slate-900">{item.description}</p>
-                          <p className="text-xs uppercase tracking-wide text-slate-400">
-                            {item.remaining} de {item.total} prestações por liquidar
-                          </p>
-                          {item.nextDueDate && (
-                            <p className="mt-1 text-xs text-slate-500">
-                              Próxima até {new Date(item.nextDueDate).toLocaleDateString('pt-PT')}
-                            </p>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </aside>
             </div>
+
+            <aside className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Insights rápidos
+                </h3>
+                <p className="mt-1 text-xs text-slate-500">
+                  Foco nas despesas agendadas até ao final do ano corrente.
+                </p>
+                <div className="mt-3 space-y-3 text-sm text-slate-600">
+                  {nextProjectionMonth && (
+                    <div>
+                      <p className="font-medium text-slate-900">Próximo mês previsto</p>
+                      <p className="text-xs uppercase tracking-wide text-slate-400">
+                        {nextProjectionMonth.label}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {formatProjectionTotals(nextProjectionMonth)}
+                      </p>
+                    </div>
+                  )}
+                  {highestProjection && (
+                    <div>
+                      <p className="font-medium text-slate-900">Mês com maior impacto</p>
+                      <p className="text-xs uppercase tracking-wide text-slate-400">
+                        {highestProjection.label}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {formatProjectionTotals(highestProjection)}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {currencyOrder.length > 0 && (
+                <div>
+                  <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Média mensal por moeda
+                  </h4>
+                  <ul className="mt-3 space-y-2 text-sm text-slate-600">
+                    {currencyOrder.map((currency) => (
+                      <li key={currency} className="flex items-center justify-between">
+                        <span>{currency}</span>
+                        <span className="font-medium text-slate-900">
+                          {formatCurrency(monthlyAverageByCurrency[currency] ?? 0, currency)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {topInstallmentSummaries.length > 0 && (
+                <div>
+                  <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Prestações em falta
+                  </h4>
+                  <ul className="mt-3 space-y-3 text-sm text-slate-600">
+                    {topInstallmentSummaries.map((item) => (
+                      <li key={item.key} className="rounded-2xl border border-slate-200 bg-white/80 p-3 shadow-sm">
+                        <p className="font-medium text-slate-900">{item.description}</p>
+                        <p className="text-xs uppercase tracking-wide text-slate-400">
+                          {item.remaining} de {item.total} prestações por liquidar
+                        </p>
+                        {item.nextDueDate && (
+                          <p className="mt-1 text-xs text-slate-500">
+                            Próxima até {new Date(item.nextDueDate).toLocaleDateString('pt-PT')}
+                          </p>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </aside>
           </div>
         </section>
       ) : (
