@@ -1,6 +1,13 @@
 import { useEffect } from 'react';
 import type { Unsubscribe } from 'firebase/firestore';
-import type { Account, DocumentMetadata, Expense, TimelineEntry, Transfer } from '../data/models';
+import type {
+  Account,
+  DocumentMetadata,
+  Expense,
+  Supplier,
+  TimelineEntry,
+  Transfer
+} from '../data/models';
 import { useAppState } from '../state/AppStateContext';
 import { initializeFirebase, validateFirebaseConfig } from '../services/firebase';
 import { subscribeToCollection } from '../services/firestore';
@@ -8,6 +15,7 @@ import { subscribeToCollection } from '../services/firestore';
 const COLLECTIONS = {
   accounts: 'accounts',
   expenses: 'expenses',
+  suppliers: 'suppliers',
   transfers: 'transfers',
   documents: 'documents',
   timeline: 'timeline'
@@ -17,6 +25,7 @@ export function useFirestoreSync() {
   const settings = useAppState((state) => state.settings);
   const setAccounts = useAppState((state) => state.setAccounts);
   const setExpenses = useAppState((state) => state.setExpenses);
+  const setSuppliers = useAppState((state) => state.setSuppliers);
   const setTransfers = useAppState((state) => state.setTransfers);
   const setDocuments = useAppState((state) => state.setDocuments);
   const setTimeline = useAppState((state) => state.setTimeline);
@@ -26,6 +35,7 @@ export function useFirestoreSync() {
     if (!config) {
       setAccounts([]);
       setExpenses([]);
+      setSuppliers([]);
       setTransfers([]);
       setDocuments([]);
       setTimeline([]);
@@ -54,6 +64,7 @@ export function useFirestoreSync() {
         unsubscribers.push(
           subscribeToCollection<Account>(db, COLLECTIONS.accounts, setAccounts),
           subscribeToCollection<Expense>(db, COLLECTIONS.expenses, setExpenses),
+          subscribeToCollection<Supplier>(db, COLLECTIONS.suppliers, setSuppliers),
           subscribeToCollection<Transfer>(db, COLLECTIONS.transfers, setTransfers),
           subscribeToCollection<DocumentMetadata>(db, COLLECTIONS.documents, setDocuments),
           subscribeToCollection<TimelineEntry>(db, COLLECTIONS.timeline, setTimeline)
@@ -67,5 +78,13 @@ export function useFirestoreSync() {
       cancelled = true;
       unsubscribers.forEach((unsubscribe) => unsubscribe());
     };
-  }, [settings.firebaseConfig, setAccounts, setExpenses, setTransfers, setDocuments, setTimeline]);
+  }, [
+    settings.firebaseConfig,
+    setAccounts,
+    setExpenses,
+    setSuppliers,
+    setTransfers,
+    setDocuments,
+    setTimeline
+  ]);
 }
