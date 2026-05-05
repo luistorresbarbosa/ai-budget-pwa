@@ -1,9 +1,12 @@
 # Simple Expenses
 
-App web simples para gerir despesas em várias contas / cartões. 100% no browser
-(localStorage), sem backend, sem login.
+App web simples para registar despesas em várias contas / cartões — **só
+despesas, sem gestão de saldos**. 100% no browser (localStorage), sem backend,
+sem login. Com cenas 3D animadas (Three.js / React Three Fiber) e
+micro-interacções com Framer Motion.
 
-Stack: Next.js 14 (App Router) + TypeScript + Tailwind CSS.
+Stack: Next.js 14 (App Router) + TypeScript + Tailwind CSS + Three.js +
+@react-three/fiber + @react-three/drei + framer-motion.
 
 ## Funcionalidades
 
@@ -11,8 +14,13 @@ Stack: Next.js 14 (App Router) + TypeScript + Tailwind CSS.
   dinheiro), com cor e moeda.
 - Registar despesas com data, categoria, conta e notas.
 - Filtrar despesas por conta, categoria e mês.
-- Resumo mensal: total, totais por conta, top categorias, despesas recentes,
-  saldo agregado estimado (saldo inicial − despesas).
+- Dashboard com:
+  - **Cena 3D** com orb central distorcido e formas a orbitar (uma por conta).
+  - **Gráfico 3D** de barras a animar para os totais por categoria do mês,
+    com auto-rotate.
+  - Totais por conta e despesas recentes com transições 3D.
+- **Burst 3D** ao adicionar uma despesa (partículas a girar em rotateX/Y/Z).
+- Page transitions com flip 3D em edições.
 - Exportar / importar JSON (backup local entre dispositivos).
 
 ## Desenvolvimento
