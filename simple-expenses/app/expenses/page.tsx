@@ -8,6 +8,13 @@ import { Burst } from "@/components/Burst";
 import { useAppData, expenseActions } from "@/lib/storage";
 import { formatDate, formatMoney, monthKey } from "@/lib/format";
 import { DEFAULT_CATEGORIES } from "@/lib/types";
+import {
+  expandExpenses,
+  getRealId,
+  parseIso,
+  recurrenceLabel,
+  todayStartOfDay,
+} from "@/lib/recurrence";
 
 export default function ExpensesPage() {
   return (
@@ -27,23 +34,45 @@ function Expenses() {
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [monthFilter, setMonthFilter] = useState<string>("all");
 
-  const months = useMemo(() => {
-    const set = new Set(expenses.map((e) => monthKey(e.date)));
-    return [...set].sort().reverse();
+  const occurrences = useMemo(() => {
+    const today = todayStartOfDay();
+    const earliest = expenses.reduce<Date>((acc, e) => {
+      const d = parseIso(e.date);
+      return d < acc ? d : acc;
+    }, today);
+    const start = new Date(earliest);
+    start.setDate(start.getDate() - 1);
+    const end = new Date(today);
+    end.setMonth(end.getMonth() + 12);
+    return expandExpenses(expenses, start, end);
   }, [expenses]);
 
+  const months = useMemo(() => {
+    const set = new Set(occurrences.map((e) => monthKey(e.date)));
+    return [...set].sort().reverse();
+  }, [occurrences]);
+
   const filtered = useMemo(() => {
-    return expenses
+    return occurrences
       .filter((e) => accountFilter === "all" || e.accountId === accountFilter)
       .filter((e) => categoryFilter === "all" || e.category === categoryFilter)
       .filter((e) => monthFilter === "all" || monthKey(e.date) === monthFilter)
       .sort((a, b) => (a.date < b.date ? 1 : -1));
-  }, [expenses, accountFilter, categoryFilter, monthFilter]);
+  }, [occurrences, accountFilter, categoryFilter, monthFilter]);
 
   const total = filtered.reduce((s, e) => s + e.amount, 0);
 
-  function remove(id: string, description: string) {
-    if (confirm(`Apagar "${description}"?`)) expenseActions.remove(id);
+  const editingExpense = useMemo(() => {
+    if (!editingId) return undefined;
+    const realId = getRealId(editingId);
+    return expenses.find((e) => e.id === realId);
+  }, [editingId, expenses]);
+
+  function remove(virtualId: string, description: string, recurring: boolean) {
+    const message = recurring
+      ? `Apagar a série completa de "${description}"? Todas as ocorrências (passadas e futuras) serão removidas.`
+      : `Apagar "${description}"?`;
+    if (confirm(message)) expenseActions.remove(getRealId(virtualId));
   }
 
   return (
@@ -164,7 +193,9 @@ function Expenses() {
                 {filtered.map((e, i) => {
                   const account = accounts.find((a) => a.id === e.accountId);
                   const isEditing = editingId === e.id;
-                  if (isEditing) {
+                  const recurring = !!e.recurrence;
+                  const future = parseIso(e.date) > todayStartOfDay();
+                  if (isEditing && editingExpense) {
                     return (
                       <motion.div
                         key={e.id}
@@ -175,9 +206,15 @@ function Expenses() {
                         style={{ transformPerspective: 900 }}
                         className="py-3 first:pt-0 last:pb-0"
                       >
+                        {recurring && (
+                          <p className="mb-3 text-xs text-ink-600 dark:text-ink-400 bg-ink-100 dark:bg-ink-700 rounded-md px-3 py-2">
+                            ↻ A editar a série inteira — alterações aplicam-se
+                            a todas as ocorrências.
+                          </p>
+                        )}
                         <ExpenseForm
                           accounts={accounts}
-                          expense={e}
+                          expense={editingExpense}
                           onDone={() => setEditingId(null)}
                           onCancel={() => setEditingId(null)}
                         />
@@ -203,7 +240,24 @@ function Expenses() {
                         style={{ backgroundColor: account?.color ?? "#94a3b8" }}
                       />
                       <div className="flex-1 min-w-0">
-                        <div className="font-medium truncate">{e.description}</div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-medium truncate">
+                            {e.description}
+                          </span>
+                          {recurring && (
+                            <span
+                              className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide font-medium px-1.5 py-0.5 rounded bg-ink-900 text-white dark:bg-ink-100 dark:text-ink-900"
+                              title={recurrenceLabel(e) ?? ""}
+                            >
+                              ↻ {recurrenceLabel(e)}
+                            </span>
+                          )}
+                          {future && (
+                            <span className="text-[10px] uppercase tracking-wide text-ink-600 dark:text-ink-400">
+                              futura
+                            </span>
+                          )}
+                        </div>
                         <div className="text-xs text-ink-600 dark:text-ink-400">
                           {account?.name ?? "—"} · {e.category} ·{" "}
                           {formatDate(e.date)}
@@ -227,7 +281,9 @@ function Expenses() {
                           </button>
                           <button
                             className="px-2 py-1 text-xs text-red-600 hover:text-red-700 rounded touch-manipulation"
-                            onClick={() => remove(e.id, e.description)}
+                            onClick={() =>
+                              remove(e.id, e.description, recurring)
+                            }
                           >
                             apagar
                           </button>

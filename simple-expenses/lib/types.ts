@@ -1,5 +1,13 @@
 export type AccountType = "checking" | "savings" | "credit" | "debit" | "cash";
 
+export type Frequency = "daily" | "weekly" | "monthly" | "yearly";
+
+export interface Recurrence {
+  frequency: Frequency;
+  interval: number;
+  endDate?: string;
+}
+
 export interface Account {
   id: string;
   name: string;
@@ -17,6 +25,7 @@ export interface Expense {
   category: string;
   date: string;
   notes?: string;
+  recurrence?: Recurrence;
   createdAt: string;
 }
 
@@ -37,6 +46,13 @@ export const DEFAULT_CATEGORIES = [
   "Subscrições",
   "Outros",
 ] as const;
+
+export const FREQUENCY_LABELS: Record<Frequency, string> = {
+  daily: "Diariamente",
+  weekly: "Semanalmente",
+  monthly: "Mensalmente",
+  yearly: "Anualmente",
+};
 
 export const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
   checking: "Conta corrente",

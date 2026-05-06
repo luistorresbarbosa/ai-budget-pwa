@@ -7,6 +7,7 @@ import { AccountForm } from "@/components/AccountForm";
 import { useAppData, accountActions } from "@/lib/storage";
 import { formatMoney } from "@/lib/format";
 import { ACCOUNT_TYPE_LABELS } from "@/lib/types";
+import { expandExpenses, todayStartOfDay } from "@/lib/recurrence";
 
 export default function AccountsPage() {
   return (
@@ -22,9 +23,27 @@ function Accounts() {
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const totals = useMemo(() => {
+    const occurrences = expandExpenses(
+      expenses,
+      new Date(2000, 0, 1),
+      todayStartOfDay(),
+    );
     const map = new Map<string, number>();
-    for (const e of expenses) {
+    for (const e of occurrences) {
       map.set(e.accountId, (map.get(e.accountId) ?? 0) + e.amount);
+    }
+    return map;
+  }, [expenses]);
+
+  const counts = useMemo(() => {
+    const occurrences = expandExpenses(
+      expenses,
+      new Date(2000, 0, 1),
+      todayStartOfDay(),
+    );
+    const map = new Map<string, number>();
+    for (const e of occurrences) {
+      map.set(e.accountId, (map.get(e.accountId) ?? 0) + 1);
     }
     return map;
   }, [expenses]);
@@ -90,7 +109,7 @@ function Accounts() {
       <div className="grid gap-3 sm:grid-cols-2">
         {accounts.map((a, i) => {
           const isEditing = editingId === a.id;
-          const count = expenses.filter((e) => e.accountId === a.id).length;
+          const count = counts.get(a.id) ?? 0;
           const total = totals.get(a.id) ?? 0;
           return (
             <motion.div
