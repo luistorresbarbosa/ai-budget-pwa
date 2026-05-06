@@ -17,9 +17,9 @@ export function HeroScene({ accounts, monthSpend, allTimeSpend }: Props) {
 
   return (
     <Canvas
-      dpr={[1, 2]}
+      dpr={[1, 1.5]}
       camera={{ position: [0, 0, 7], fov: 45 }}
-      gl={{ antialias: true, alpha: true }}
+      gl={{ antialias: true, alpha: true, powerPreference: "low-power" }}
       style={{ width: "100%", height: "100%" }}
     >
       <Suspense fallback={null}>

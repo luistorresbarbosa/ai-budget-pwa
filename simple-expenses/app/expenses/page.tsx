@@ -52,11 +52,24 @@ function Expenses() {
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Despesas</h1>
         {!creating && accounts.length > 0 && (
-          <button onClick={() => setCreating(true)} className="btn-primary">
+          <button
+            onClick={() => setCreating(true)}
+            className="btn-primary hidden md:inline-flex"
+          >
             Nova despesa
           </button>
         )}
       </div>
+      {!creating && accounts.length > 0 && (
+        <button
+          onClick={() => setCreating(true)}
+          className="fab"
+          aria-label="Nova despesa"
+        >
+          <span className="text-2xl leading-none">+</span>
+          Despesa
+        </button>
+      )}
 
       <AnimatePresence>
         {creating && (
@@ -207,14 +220,13 @@ function Expenses() {
                         </div>
                         <div className="flex gap-1 mt-1 justify-end">
                           <button
-                            className="text-xs text-ink-600 hover:text-ink-900 dark:text-ink-300"
+                            className="px-2 py-1 -mr-1 text-xs text-ink-600 hover:text-ink-900 dark:text-ink-300 rounded touch-manipulation"
                             onClick={() => setEditingId(e.id)}
                           >
                             editar
                           </button>
-                          <span className="text-ink-400">·</span>
                           <button
-                            className="text-xs text-red-600 hover:text-red-700"
+                            className="px-2 py-1 text-xs text-red-600 hover:text-red-700 rounded touch-manipulation"
                             onClick={() => remove(e.id, e.description)}
                           >
                             apagar

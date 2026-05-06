@@ -71,7 +71,7 @@ function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <section className="relative overflow-hidden rounded-2xl border border-ink-200 dark:border-ink-700 bg-gradient-to-br from-ink-100 via-white to-ink-50 dark:from-ink-800 dark:via-ink-900 dark:to-ink-800">
+      <section className="relative overflow-hidden rounded-2xl border border-ink-200 dark:border-ink-700 bg-gradient-to-br from-ink-100 via-white to-ink-50 dark:from-ink-800 dark:via-ink-900 dark:to-ink-800 min-h-[18rem] sm:min-h-[22rem]">
         <div className="absolute inset-0">
           <HeroScene
             accounts={accounts}
@@ -79,19 +79,19 @@ function Dashboard() {
             allTimeSpend={totalAll}
           />
         </div>
-        <div className="relative z-10 p-6 sm:p-8 pointer-events-none">
+        <div className="relative z-10 p-5 sm:p-8 pointer-events-none">
           <motion.div
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6 }}
           >
-            <div className="text-xs uppercase tracking-widest text-ink-600 dark:text-ink-300">
+            <div className="text-[11px] sm:text-xs uppercase tracking-widest text-ink-600 dark:text-ink-300">
               {monthLabel(thisMonth)}
             </div>
-            <div className="mt-1 text-4xl sm:text-5xl font-semibold tabular-nums">
+            <div className="mt-1 text-3xl sm:text-5xl font-semibold tabular-nums">
               {formatMoney(monthTotal)}
             </div>
-            <div className="mt-2 text-sm text-ink-600 dark:text-ink-300">
+            <div className="mt-2 text-xs sm:text-sm text-ink-600 dark:text-ink-300">
               {monthExpenses.length} despesas este mês ·{" "}
               {formatMoney(totalAll)} no total
             </div>

@@ -33,9 +33,9 @@ export function CategoryBars3D({ data }: Props) {
 
   return (
     <Canvas
-      dpr={[1, 2]}
+      dpr={[1, 1.5]}
       camera={{ position: [0, 3.5, 6.5], fov: 40 }}
-      gl={{ antialias: true, alpha: true }}
+      gl={{ antialias: true, alpha: true, powerPreference: "low-power" }}
     >
       <Suspense fallback={null}>
         <ambientLight intensity={0.6} />

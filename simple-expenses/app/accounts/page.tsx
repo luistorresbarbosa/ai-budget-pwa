@@ -44,11 +44,24 @@ function Accounts() {
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Contas e cartões</h1>
         {!creating && (
-          <button onClick={() => setCreating(true)} className="btn-primary">
+          <button
+            onClick={() => setCreating(true)}
+            className="btn-primary hidden md:inline-flex"
+          >
             Nova conta
           </button>
         )}
       </div>
+      {!creating && (
+        <button
+          onClick={() => setCreating(true)}
+          className="fab"
+          aria-label="Nova conta"
+        >
+          <span className="text-2xl leading-none">+</span>
+          Conta
+        </button>
+      )}
 
       <AnimatePresence>
         {creating && (
