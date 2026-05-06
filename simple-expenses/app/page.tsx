@@ -7,6 +7,12 @@ import { useMemo } from "react";
 import { ClientOnly } from "@/components/ClientOnly";
 import { useAppData } from "@/lib/storage";
 import { formatMoney, monthKey, monthLabel } from "@/lib/format";
+import {
+  endOfMonth,
+  expandExpenses,
+  startOfMonth,
+  todayStartOfDay,
+} from "@/lib/recurrence";
 
 const HeroScene = dynamic(
   () => import("@/components/three/HeroScene").then((m) => m.HeroScene),
@@ -31,9 +37,19 @@ function Dashboard() {
   const { accounts, expenses } = useAppData();
 
   const thisMonth = monthKey(new Date().toISOString());
-  const monthExpenses = expenses.filter((e) => monthKey(e.date) === thisMonth);
+
+  const monthExpenses = useMemo(() => {
+    const today = todayStartOfDay();
+    return expandExpenses(expenses, startOfMonth(today), endOfMonth(today));
+  }, [expenses]);
+
+  const pastOccurrences = useMemo(() => {
+    const start = new Date(2000, 0, 1);
+    return expandExpenses(expenses, start, todayStartOfDay());
+  }, [expenses]);
+
   const monthTotal = monthExpenses.reduce((s, e) => s + e.amount, 0);
-  const totalAll = expenses.reduce((s, e) => s + e.amount, 0);
+  const totalAll = pastOccurrences.reduce((s, e) => s + e.amount, 0);
 
   const byCategory = useMemo(() => {
     const map = new Map<string, number>();
@@ -51,7 +67,7 @@ function Dashboard() {
     return map;
   }, [monthExpenses]);
 
-  const recent = [...expenses]
+  const recent = [...pastOccurrences]
     .sort((a, b) => (a.date < b.date ? 1 : -1))
     .slice(0, 5);
 
@@ -104,7 +120,7 @@ function Dashboard() {
         <div className="grid gap-3 sm:grid-cols-2">
           {accounts.map((a, i) => {
             const monthSpent = byAccountMonth.get(a.id) ?? 0;
-            const total = expenses
+            const total = pastOccurrences
               .filter((e) => e.accountId === a.id)
               .reduce((s, e) => s + e.amount, 0);
             return (
