@@ -4,7 +4,6 @@ export interface Account {
   id: string;
   name: string;
   type: AccountType;
-  initialBalance: number;
   currency: string;
   color: string;
   createdAt: string;

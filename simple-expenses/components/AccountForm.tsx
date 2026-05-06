@@ -18,9 +18,6 @@ interface Props {
 export function AccountForm({ account, onDone, onCancel }: Props) {
   const [name, setName] = useState(account?.name ?? "");
   const [type, setType] = useState<AccountType>(account?.type ?? "checking");
-  const [initialBalance, setInitialBalance] = useState(
-    account?.initialBalance?.toString() ?? "0",
-  );
   const [currency, setCurrency] = useState(account?.currency ?? "EUR");
   const [color, setColor] = useState(account?.color ?? ACCOUNT_COLORS[0]);
 
@@ -29,7 +26,6 @@ export function AccountForm({ account, onDone, onCancel }: Props) {
     const payload = {
       name: name.trim(),
       type,
-      initialBalance: Number(initialBalance) || 0,
       currency: currency.trim().toUpperCase() || "EUR",
       color,
     };
@@ -78,16 +74,6 @@ export function AccountForm({ account, onDone, onCancel }: Props) {
             maxLength={3}
           />
         </div>
-      </div>
-      <div>
-        <label className="label">Saldo inicial</label>
-        <input
-          className="input"
-          type="number"
-          step="0.01"
-          value={initialBalance}
-          onChange={(e) => setInitialBalance(e.target.value)}
-        />
       </div>
       <div>
         <label className="label">Cor</label>
